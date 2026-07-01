@@ -1,0 +1,4 @@
+interface:
+  display_name: "CV HUB Dev"
+  short_description: "CV HUB architecture and plugin guidance"
+  default_prompt: "Use $cv-hub-dev to modify CV_HUB architecture, plugin nodes, or CMake structure consistently."
