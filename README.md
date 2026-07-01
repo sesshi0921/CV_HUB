@@ -17,6 +17,8 @@ macOS + Homebrew の CLI 依存例:
 brew install cmake opencv spdlog glfw
 ```
 
+Homebrew がインストールされている macOS では、CMake が自動的に `brew --prefix` を検出して `CMAKE_PREFIX_PATH` に追加します。`-DCMAKE_PREFIX_PATH` の手動指定は不要です。
+
 GUI 依存の Dear ImGui と imnodes は、CMake package が見つからない場合に CMake が FetchContent で取得します。`CVHUB_FETCH_GUI_DEPS=OFF` かつ imnodes package が無い場合だけ、最小互換 shim でビルドします。
 
 ### 取得

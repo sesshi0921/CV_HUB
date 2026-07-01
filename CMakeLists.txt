@@ -1,5 +1,17 @@
 cmake_minimum_required(VERSION 3.24)
 
+if(APPLE)
+    execute_process(
+        COMMAND brew --prefix
+        OUTPUT_VARIABLE HOMEBREW_PREFIX
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(HOMEBREW_PREFIX)
+        list(PREPEND CMAKE_PREFIX_PATH "${HOMEBREW_PREFIX}")
+    endif()
+endif()
+
 project(CV_HUB VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -12,7 +24,18 @@ option(CVHUB_BUILD_TESTS "Build CV_HUB tests" ON)
 option(CVHUB_FETCH_GUI_DEPS "Fetch Dear ImGui when no CMake package is available" ON)
 
 find_package(Threads REQUIRED)
-find_package(spdlog REQUIRED)
+find_package(spdlog CONFIG QUIET)
+if(NOT TARGET spdlog::spdlog)
+    include(FetchContent)
+    set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
+    FetchContent_Declare(
+        spdlog
+        GIT_REPOSITORY https://github.com/gabime/spdlog.git
+        GIT_TAG v1.15.3
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(spdlog)
+endif()
 
 add_library(cvhub_core INTERFACE)
 target_include_directories(cvhub_core INTERFACE include)
