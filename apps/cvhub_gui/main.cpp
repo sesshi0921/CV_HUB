@@ -83,6 +83,7 @@ void uploadNodePreviews(
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
       const int bpp = img->channels();
+      glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
       glPixelStorei(GL_UNPACK_ROW_LENGTH,
                     img->strideBytes() / std::max(1, bpp));
       const auto* data = reinterpret_cast<const GLubyte*>(img->bytes().data());
@@ -463,10 +464,13 @@ void renderGraph(
   // Handle link creation (drag between ports)
   int startAttr = 0, endAttr = 0;
   if (ImNodes::IsLinkCreated(&startAttr, &endAttr)) {
-    const int fromNodeIndex = (startAttr / 1000) - 1;
-    const int fromPortIndex = (startAttr % 1000) - 200;
-    const int toNodeIndex = (endAttr / 1000) - 1;
-    const int toPortIndex = (endAttr % 1000) - 100;
+    // outputAttributeId offset: 200-299, inputAttributeId offset: 100-199
+    const int outAttr = ((startAttr % 1000) >= 200) ? startAttr : endAttr;
+    const int inAttr = ((startAttr % 1000) >= 200) ? endAttr : startAttr;
+    const int fromNodeIndex = (outAttr / 1000) - 1;
+    const int fromPortIndex = (outAttr % 1000) - 200;
+    const int toNodeIndex = (inAttr / 1000) - 1;
+    const int toPortIndex = (inAttr % 1000) - 100;
     if (fromNodeIndex >= 0 &&
         fromNodeIndex < static_cast<int>(state.nodes.size()) &&
         toNodeIndex >= 0 &&

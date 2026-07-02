@@ -122,8 +122,8 @@ if(CVHUB_BUILD_GUI)
         FetchContent_Declare(
             imnodes
             GIT_REPOSITORY https://github.com/Nelarius/imnodes.git
-            GIT_TAG master
-            GIT_SHALLOW TRUE
+            GIT_TAG eb36902
+            GIT_SHALLOW FALSE
         )
         FetchContent_GetProperties(imnodes)
         if(NOT imnodes_POPULATED)
