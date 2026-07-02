@@ -27,6 +27,31 @@
 - `const` を積極的に使用すること（引数・メンバ関数・変数）。
 - ゼロ警告を維持すること（`-Wall -Wextra`）。
 
+## CV_HUB プラグイン設計パターン
+
+新しいライブラリのプラグインを追加する場合は以下のパターンに従うこと。
+
+### 原則
+- プラグインのC++ソースは「ライブラリにどんな関数があるか」を知らない。
+- 関数一覧はビルド時に `tools/gen_<lib>_nodes.py` がヘッダを解析して `_auto_nodes.cpp` を生成する。
+- 手書きが許されるのは **statefulなノード**（ファイルI/O・デバイス・キャッシュ）と **sourceノード** のみ。
+
+### ファイル構成
+```
+plugins/<lib>/CMakeLists.txt         # add_custom_command で gen スクリプトを呼ぶ
+plugins/<lib>/src/<lib>_helpers.hpp  # imageToMat / matToImage 相当 (inline)
+plugins/<lib>/src/<lib>_plugin.cpp   # stateful/source のみ手書き
+plugins/<lib>/tools/gen_nodes.py     # ヘッダ解析 → auto_nodes.cpp 生成（ライブラリ固有）
+```
+
+### 参照実装
+- `plugins/opencv/tools/gen_nodes.py`
+- `plugins/opencv/src/opencv_helpers.hpp`
+- `plugins/opencv/src/opencv_plugin.cpp`
+- `plugins/opencv/CMakeLists.txt`
+
+---
+
 ### Python — PEP 8
 
 - インデント: スペース4つ。

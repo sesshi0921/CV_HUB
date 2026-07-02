@@ -33,7 +33,9 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -41,6 +43,7 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -49,6 +52,82 @@
 #include <vector>
 
 namespace {
+
+// ---------------------------------------------------------------------------
+// Pipeline worker — runs the pipeline on a dedicated thread so the ImGui
+// render loop is never blocked by node execution.
+// ---------------------------------------------------------------------------
+
+struct PipelineWorker {
+  std::thread thread;
+  std::mutex graphMtx;
+  cvhub::PipelineGraph pendingGraph;
+  bool graphDirty{false};
+  std::condition_variable graphCv;
+
+  std::mutex resultMtx;
+  cvhub::PipelineRunResult latestResult;
+  bool hasResult{false};
+
+  std::atomic<bool> active{false};
+
+  void start(std::shared_ptr<cvhub::IPipelineExecutor> exec,
+             cvhub::PipelineGraph initial) {
+    active = true;
+    {
+      std::lock_guard lk(graphMtx);
+      pendingGraph = std::move(initial);
+      graphDirty = true;
+    }
+    thread = std::thread([this, exec = std::move(exec)]() {
+      cvhub::PipelineGraph graph;
+      while (active) {
+        {
+          std::unique_lock lk(graphMtx);
+          graphCv.wait(lk, [this] { return graphDirty || !active; });
+          if (!active) break;
+          graph = pendingGraph;
+          graphDirty = false;
+        }
+        while (active) {
+          {
+            std::lock_guard lk(graphMtx);
+            if (graphDirty) break;
+          }
+          auto result = exec->run(graph);
+          {
+            std::lock_guard lk(resultMtx);
+            latestResult = std::move(result);
+            hasResult = true;
+          }
+        }
+      }
+    });
+  }
+
+  void stop() {
+    active = false;
+    graphCv.notify_all();
+    if (thread.joinable()) thread.join();
+  }
+
+  void updateGraph(cvhub::PipelineGraph g) {
+    {
+      std::lock_guard lk(graphMtx);
+      pendingGraph = std::move(g);
+      graphDirty = true;
+    }
+    graphCv.notify_one();
+  }
+
+  bool poll(cvhub::PipelineRunResult& out) {
+    std::lock_guard lk(resultMtx);
+    if (!hasResult) return false;
+    out = std::move(latestResult);
+    hasResult = false;
+    return true;
+  }
+};
 
 struct GuiNodeState {
   cvhub::GraphNode node;
@@ -400,7 +479,6 @@ void renderNodeList(const std::vector<cvhub::NodeDescriptor>& nodes,
   ImGui::TextUnformatted("Graph");
   for (const auto& graphNode : graphState.nodes) {
     ImGui::BulletText("%s", graphNode.node.instanceId.c_str());
-    // No gray text here
   }
   ImGui::EndChild();
 }
@@ -582,8 +660,9 @@ void renderGraph(
             if (ImGui::BeginCombo(widgetId.c_str(), preview.c_str())) {
               for (const auto& opt : param.options) {
                 const bool selected = (opt.id == *sv);
-                if (ImGui::Selectable(opt.displayName.c_str(), selected))
+                if (ImGui::Selectable(opt.displayName.c_str(), selected)) {
                   *sv = opt.id;
+                }
                 if (selected) ImGui::SetItemDefaultFocus();
               }
               ImGui::EndCombo();
@@ -612,7 +691,9 @@ void renderGraph(
           char buf[256]{};
           std::snprintf(buf, sizeof(buf), "%s", strv->c_str());
           ImGui::TextDisabled("%s", param.displayName.c_str());
-          if (ImGui::InputText(widgetId.c_str(), buf, sizeof(buf))) *strv = buf;
+          if (ImGui::InputText(widgetId.c_str(), buf, sizeof(buf))) {
+            *strv = buf;
+          }
         }
       }
       ImGui::PopItemWidth();
@@ -790,6 +871,7 @@ void renderParameterEditor(cvhub::ParameterMap& values,
         break;
       }
     }
+    bool changed = false;
     if (ImGui::BeginCombo(
             parameter.displayName.c_str(),
             parameter.options.empty()
@@ -801,6 +883,7 @@ void renderParameterEditor(cvhub::ParameterMap& values,
         if (ImGui::Selectable(parameter.options[i].displayName.c_str(),
                               selected)) {
           it->second = parameter.options[i].id;
+          changed = true;
         }
         if (selected) {
           ImGui::SetItemDefaultFocus();
@@ -920,17 +1003,19 @@ int main() {
   bool autoRun = false;
   int maxFps = 60;
   float smoothFps = 0.0f;
+  PipelineWorker worker;
 
   while (!glfwWindowShouldClose(window)) {
     const auto frameStart = std::chrono::steady_clock::now();
     glfwPollEvents();
 
-    // Auto-run pipeline every frame after first build
+    // Poll pipeline results produced by the worker thread (non-blocking)
     if (autoRun) {
-      const auto result =
-          services->pipelineExecutor()->run(buildPipelineGraph(graphState));
-      status = result.ok ? result.message : "Error: " + result.message;
-      if (result.ok) uploadNodePreviews(result, previews);
+      cvhub::PipelineRunResult result;
+      if (worker.poll(result)) {
+        status = result.ok ? result.message : "Error: " + result.message;
+        if (result.ok) uploadNodePreviews(result, previews);
+      }
     }
 
     ImGui_ImplOpenGL3_NewFrame();
@@ -941,18 +1026,16 @@ int main() {
       if (autoRun) {
         if (ImGui::Button("Stop")) {
           autoRun = false;
+          worker.stop();
           logLines.push_back("Stopped.");
         }
       } else {
         if (ImGui::Button("Run")) {
           autoRun = true;
           for (auto& n : graphState.nodes) n.running = true;
-          const auto result =
-              services->pipelineExecutor()->run(buildPipelineGraph(graphState));
-          status = result.ok ? result.message : "Error: " + result.message;
-          logLines.push_back(result.ok ? "Run started: " + result.message
-                                       : "Run failed: " + result.message);
-          if (result.ok) uploadNodePreviews(result, previews);
+          worker.start(services->pipelineExecutor(),
+                       buildPipelineGraph(graphState));
+          logLines.push_back("Run started.");
         }
       }
       ImGui::Separator();
@@ -1136,6 +1219,7 @@ int main() {
     }
   }
 
+  worker.stop();
   cleanupPreviews(previews);
   ImGui_ImplOpenGL3_Shutdown();
   ImGui_ImplGlfw_Shutdown();
