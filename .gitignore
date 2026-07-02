@@ -3,3 +3,4 @@ build-*/
 cmake-build-*/
 *.log
 *.dSYM/
+*.ini
