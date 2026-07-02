@@ -8,6 +8,39 @@
 
 namespace cvhub {
 
+/// Fully general node execute function — receives the full execution context.
+using NodeExecuteFn = std::function<void(NodeExecutionContext&)>;
+
+/// Generic node wrapping any execute lambda.
+class GenericNode final : public INode {
+ public:
+  GenericNode(NodeDescriptor descriptor, NodeExecuteFn fn)
+      : descriptor_(std::move(descriptor)), fn_(std::move(fn)) {}
+
+  const NodeDescriptor& descriptor() const override { return descriptor_; }
+  void execute(NodeExecutionContext& context) override { fn_(context); }
+
+ private:
+  NodeDescriptor descriptor_;
+  NodeExecuteFn fn_;
+};
+
+/// Factory for GenericNode — shared fn across instances (stateful lambdas
+/// capture state via closure).
+class GenericNodeFactory final : public INodeFactory {
+ public:
+  GenericNodeFactory(NodeDescriptor descriptor, NodeExecuteFn fn)
+      : descriptor_(std::move(descriptor)), fn_(std::move(fn)) {}
+
+  std::unique_ptr<INode> create() const override {
+    return std::make_unique<GenericNode>(descriptor_, fn_);
+  }
+
+ private:
+  NodeDescriptor descriptor_;
+  NodeExecuteFn fn_;
+};
+
 /// Produces an image from parameters only (stateless source).
 using ImageSourceFn =
     std::function<std::shared_ptr<ImageValue>(const ParameterMap&)>;
