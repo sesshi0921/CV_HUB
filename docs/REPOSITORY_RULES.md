@@ -1,18 +1,86 @@
 # Repository Rules
 
-## Branch Protection
+## Branch Strategy
 
-`main` is the protected branch. Direct pushes to `main` should be avoided after the initial architecture checkpoint.
+`main` is the release/stable branch. `develop` is the integration branch for normal development.
 
-Recommended GitHub branch protection:
+Expected flow:
 
-- Require pull request before merging
-- Require at least one approval
-- Require status checks before merge once CI exists
-- Require branches to be up to date before merge
+```text
+feature/* or fix/*
+  -> pull request
+  -> develop
+  -> pull request
+  -> main
+```
+
+`main` must only be updated by a pull request whose source branch is `develop`. GitHub branch protection cannot directly inspect the source of a direct push, so direct pushes to `main` must be blocked and a required check must enforce that `main` pull requests come from `develop`.
+
+`develop` should also be updated through pull requests once CI exists. A branch cannot be protected by "CI before direct push" because CI runs after the push has already happened. To guarantee CI has passed before code enters `develop`, direct pushes to `develop` must be blocked and required status checks must pass before merge.
+
+## GitHub Rulesets
+
+Prefer GitHub rulesets over legacy branch protection rules when available, because rulesets can protect branch creation, update, deletion, and bypass behavior consistently.
+
+### `main` Ruleset
+
+Target:
+
+- Branch name pattern: `main`
+
+Rules:
+
+- Restrict deletions
 - Block force pushes
-- Block branch deletion
+- Require a pull request before merging
 - Require conversation resolution before merge
+- Require at least one approval when the project has multiple contributors
+- Require status checks before merge
+- Require branches to be up to date before merge
+
+Required status checks:
+
+- `main-source-branch` after the workflow exists
+- Common build/test checks after CI exists
+
+Bypass:
+
+- No regular user bypass
+- Repository administrators may keep emergency bypass only if it is audited and used rarely
+
+Source branch enforcement:
+
+- Add a CI check named `main-source-branch`.
+- The check must pass only when `github.base_ref == 'main'` and `github.head_ref == 'develop'` for pull requests targeting `main`.
+- Mark `main-source-branch` as required in the `main` ruleset.
+
+### `develop` Ruleset
+
+Target:
+
+- Branch name pattern: `develop`
+
+Rules:
+
+- Restrict deletions
+- Block force pushes
+- Require a pull request before merging once CI exists
+- Require status checks before merge once CI exists
+- Require conversation resolution before merge
+- Require branches to be up to date before merge when CI runtime is acceptable
+
+Required status checks after CI is introduced:
+
+- CMake configure
+- CMake build
+- Unit tests
+- Formatting or lint checks when introduced
+
+Interim behavior before CI exists:
+
+- Keep force pushes and deletion blocked.
+- Allow PR merges into `develop` without required checks only until the first CI workflow is merged.
+- After the first CI workflow is available, immediately mark the CI checks as required.
 
 ## Commit Policy
 

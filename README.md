@@ -6,8 +6,20 @@
 
 - CMake 3.24 以上
 - C++20 対応コンパイラ
-- Python 3.10 以上
+- OpenCV
+- spdlog
+- GUI をビルドする場合: GLFW、OpenGL
 - Git
+
+macOS + Homebrew の CLI 依存例:
+
+```bash
+brew install cmake opencv spdlog glfw
+```
+
+Homebrew がインストールされている macOS では、CMake が自動的に `brew --prefix` を検出して `CMAKE_PREFIX_PATH` に追加します。`-DCMAKE_PREFIX_PATH` の手動指定は不要です。
+
+GUI 依存の Dear ImGui と imnodes は、CMake package が見つからない場合に CMake が FetchContent で取得します。`CVHUB_FETCH_GUI_DEPS=OFF` かつ imnodes package が無い場合だけ、最小互換 shim でビルドします。
 
 ### 取得
 
@@ -22,11 +34,19 @@ cd CV_HUB
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 ```
 
-任意のプラグインだけを有効化する場合は、将来的に追加される `CVHUB_BUILD_PLUGIN_*` オプションを指定します。
+任意のプラグインだけを有効化する場合は、`CVHUB_BUILD_PLUGIN_*` オプションを指定します。
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCVHUB_BUILD_PLUGIN_OPENCV=ON
 ```
+
+GUI 依存を入れていない環境では CLI のみビルドできます。
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCVHUB_BUILD_GUI=OFF
+```
+
+ネットワークなしで GUI をビルドする場合は、Dear ImGui と imnodes を CMake package として事前に導入してください。
 
 ### ビルド
 
@@ -40,8 +60,26 @@ cmake --build build --config Release
 ./build/apps/cvhub/cvhub
 ```
 
-設定ファイルを指定する場合:
+ノード一覧を表示する場合:
 
 ```bash
-./build/apps/cvhub/cvhub --config config/pipeline.yaml
+./build/apps/cvhub/cvhub --list-nodes
+```
+
+OpenCV サンプルパイプラインを実行する場合:
+
+```bash
+./build/apps/cvhub/cvhub --run-sample --log-file cvhub.log
+```
+
+GUI を起動する場合:
+
+```bash
+./build/apps/cvhub_gui/cvhub_gui
+```
+
+テストを実行する場合:
+
+```bash
+ctest --test-dir build --output-on-failure
 ```

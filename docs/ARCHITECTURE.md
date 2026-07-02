@@ -227,6 +227,18 @@ CMake に含めたプラグインだけを実行バイナリへリンクしま�
 
 将来的に必要であれば、共有ライブラリの runtime discovery を `IPluginLoader` の別実装として追加します。
 
+## 現在の最小実装
+
+初期実装では、以下の範囲を実走可能な基盤として提供します。
+
+- `cvhub_core`: ライブラリ非依存の `NodeDescriptor`、`PortDescriptor`、`ValueBase`、`ImageValue`、`INode`、`INodeFactory`、`INodeCatalog`、`IPipelineExecutor`
+- `cvhub_runtime`: node catalog、`FunctionDescriptor -> NodeDescriptor` 生成器、DAG 検証付き pipeline executor、spdlog file logger、アプリケーション用 service container
+- `cvhub_plugin_opencv`: 静的リンク OpenCV プラグイン。`opencv.test_image`、`opencv.resize`、`opencv.grayscale`、`opencv.gaussian_blur` を登録する
+- `cvhub`: CLI。ノード一覧表示と OpenCV サンプルパイプライン実行を行う
+- `cvhub_gui`: Dear ImGui + imnodes ベースの最小 graph editor。左にノード一覧、中央にノードグラフ、右にトグル可能なパラメータパネルを置き、メニューバーの Build ボタンで executor を呼ぶ。GUI 依存は CMake package を優先し、無い場合は FetchContent で取得する
+
+`ServiceContainer` は初期実装の bootstrap 境界です。依存生成を application code に散らさず、plugin registration と runtime service 構築をこの境界に集約します。Hypodermic へ置き換える場合も、plugin module が `ServiceContainer` 相当の builder に登録する流れは維持します。
+
 ## ノードモデル
 
 ### NodeDescriptor
