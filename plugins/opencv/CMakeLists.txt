@@ -1,4 +1,4 @@
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio)
 
 add_library(cvhub_plugin_opencv
     src/opencv_plugin.cpp

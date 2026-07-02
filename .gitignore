@@ -4,3 +4,4 @@ cmake-build-*/
 *.log
 *.dSYM/
 *.ini
+**/graph.json

@@ -11,8 +11,9 @@
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 
+#include <nlohmann/json.hpp>
+
 #include "cvhub/app/application.hpp"
-#include "cvhub/app/sample_graph.hpp"
 
 #if __has_include(<imnodes.h>)
 #include <imnodes.h>
@@ -35,12 +36,15 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <iterator>
 #include <map>
 #include <memory>
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -51,6 +55,8 @@ struct GuiNodeState {
   cvhub::NodeDescriptor descriptor;
   ImVec2 position;
   bool positionSet{false};
+  bool running{true};
+  bool previewEnabled{true};
 };
 
 struct GuiGraphState {
@@ -147,6 +153,116 @@ void applyTheme() {
   colors[ImGuiCol_TabActive] = ImVec4(0.32f, 0.25f, 0.21f, 1.00f);
 }
 
+// ---------------------------------------------------------------------------
+// Toggle switch widget
+// ---------------------------------------------------------------------------
+
+bool ToggleSwitch(const char* id, bool* value) {
+  constexpr float kW = 28.0f, kH = 14.0f, kR = kH * 0.5f;
+  const ImVec2 pos = ImGui::GetCursorScreenPos();
+  ImGui::InvisibleButton(id, ImVec2(kW, kH));
+  const bool clicked = ImGui::IsItemClicked();
+  if (clicked) *value = !*value;
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  const ImU32 bg =
+      *value ? IM_COL32(38, 139, 210, 255) : IM_COL32(80, 80, 85, 255);
+  dl->AddRectFilled(pos, ImVec2(pos.x + kW, pos.y + kH), bg, kR);
+  const float knobX = *value ? pos.x + kW - kR : pos.x + kR;
+  dl->AddCircleFilled(ImVec2(knobX, pos.y + kR), kR - 2.0f,
+                      IM_COL32(255, 255, 255, 230));
+  return clicked;
+}
+
+// ---------------------------------------------------------------------------
+// Graph serialization / deserialization
+// ---------------------------------------------------------------------------
+
+using json = nlohmann::json;
+
+json serializeParam(const cvhub::ParameterValue& v) {
+  return std::visit(
+      [](const auto& val) -> json {
+        using T = std::decay_t<decltype(val)>;
+        if constexpr (std::is_same_v<T, int>)
+          return {{"t", "i"}, {"v", val}};
+        else if constexpr (std::is_same_v<T, double>)
+          return {{"t", "d"}, {"v", val}};
+        else if constexpr (std::is_same_v<T, bool>)
+          return {{"t", "b"}, {"v", val}};
+        else
+          return {{"t", "s"}, {"v", val}};
+      },
+      v);
+}
+
+cvhub::ParameterValue deserializeParam(const json& j) {
+  const auto t = j.at("t").get<std::string>();
+  if (t == "i") return j.at("v").get<int>();
+  if (t == "d") return j.at("v").get<double>();
+  if (t == "b") return j.at("v").get<bool>();
+  return j.at("v").get<std::string>();
+}
+
+void saveGraph(const std::string& path, const GuiGraphState& state) {
+  json nodesArr = json::array();
+  for (const auto& n : state.nodes) {
+    json params = json::object();
+    for (const auto& [k, v] : n.node.parameters) params[k] = serializeParam(v);
+    nodesArr.push_back({
+        {"instanceId", n.node.instanceId},
+        {"nodeId", n.node.nodeId},
+        {"x", n.position.x},
+        {"y", n.position.y},
+        {"running", n.running},
+        {"parameters", params},
+    });
+  }
+  json edgesArr = json::array();
+  for (const auto& e : state.edges) {
+    edgesArr.push_back({
+        {"fromNode", e.fromNode},
+        {"fromPort", e.fromPort},
+        {"toNode", e.toNode},
+        {"toPort", e.toPort},
+    });
+  }
+  std::ofstream out(path);
+  out << json{{"nodes", nodesArr}, {"edges", edgesArr}}.dump(2);
+}
+
+GuiGraphState loadGraph(const std::string& path,
+                        const std::shared_ptr<cvhub::INodeCatalog>& catalog) {
+  std::ifstream in(path);
+  const json j = json::parse(in);
+  GuiGraphState state;
+  for (const auto& jn : j.at("nodes")) {
+    const auto nodeId = jn.at("nodeId").get<std::string>();
+    const auto descriptor = catalog->descriptor(nodeId);
+    cvhub::GraphNode node;
+    node.instanceId = jn.at("instanceId").get<std::string>();
+    node.nodeId = nodeId;
+    for (const auto& p : descriptor.parameters)
+      node.parameters[p.name] = p.defaultValue;
+    for (const auto& [k, v] : jn.at("parameters").items())
+      node.parameters[k] = deserializeParam(v);
+    GuiNodeState gs;
+    gs.node = std::move(node);
+    gs.descriptor = descriptor;
+    gs.position = ImVec2(jn.at("x").get<float>(), jn.at("y").get<float>());
+    gs.running = jn.at("running").get<bool>();
+    state.nodes.push_back(std::move(gs));
+  }
+  for (const auto& je : j.at("edges")) {
+    state.edges.push_back({
+        .fromNode = je.at("fromNode").get<std::string>(),
+        .fromPort = je.at("fromPort").get<std::string>(),
+        .toNode = je.at("toNode").get<std::string>(),
+        .toPort = je.at("toPort").get<std::string>(),
+    });
+  }
+  return state;
+}
+
 cvhub::ParameterValue defaultParameterValue(
     const cvhub::ParameterDescriptor& parameter) {
   return parameter.defaultValue;
@@ -181,9 +297,17 @@ GuiGraphState createGuiGraphState(
 
 cvhub::PipelineGraph buildPipelineGraph(const GuiGraphState& state) {
   cvhub::PipelineGraph graph;
-  graph.edges = state.edges;
+  std::unordered_set<std::string> runningIds;
   for (const auto& node : state.nodes) {
-    graph.nodes.push_back(node.node);
+    if (node.running) {
+      graph.nodes.push_back(node.node);
+      runningIds.insert(node.node.instanceId);
+    }
+  }
+  for (const auto& edge : state.edges) {
+    if (runningIds.count(edge.fromNode) && runningIds.count(edge.toNode)) {
+      graph.edges.push_back(edge);
+    }
   }
   return graph;
 }
@@ -230,37 +354,53 @@ int findOutputPortIndex(const cvhub::NodeDescriptor& descriptor,
 }
 
 void renderNodeList(const std::vector<cvhub::NodeDescriptor>& nodes,
-                    GuiGraphState& graphState, float panelWidth) {
-  static int instanceCounter = 0;
+                    GuiGraphState& graphState, float panelWidth, bool autoRun,
+                    std::unordered_map<std::string, int>& instanceCounters) {
   ImGui::BeginChild("node-list", ImVec2(panelWidth, 0.0f), true);
   ImGui::TextUnformatted("Nodes");
   ImGui::Separator();
+
+  // Group by library
+  std::map<std::string, std::vector<const cvhub::NodeDescriptor*>> byLibrary;
   for (const auto& node : nodes) {
-    ImGui::Selectable(node.displayName.c_str(), false);
+    byLibrary[node.library].push_back(&node);
+  }
+
+  auto renderItem = [&](const cvhub::NodeDescriptor* nd) {
+    ImGui::Selectable(nd->displayName.c_str(), false);
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+      const std::string funcKey = nd->library + "." + nd->functionName;
+      const int idx = instanceCounters[funcKey]++;
       cvhub::GraphNode newNode;
-      newNode.instanceId = node.id + "_" + std::to_string(++instanceCounter);
-      newNode.nodeId = node.id;
-      for (const auto& param : node.parameters) {
+      newNode.instanceId =
+          nd->library + ":" + nd->functionName + "()-" + std::to_string(idx);
+      newNode.nodeId = nd->id;
+      for (const auto& param : nd->parameters) {
         newNode.parameters.emplace(param.name, param.defaultValue);
       }
-      graphState.nodes.push_back(GuiNodeState{
-          .node = std::move(newNode),
-          .descriptor = node,
-          .position = ImVec2(
-              100.0f + static_cast<float>(instanceCounter % 5) * 50.0f, 200.0f),
-      });
+      GuiNodeState gs;
+      gs.node = std::move(newNode);
+      gs.descriptor = *nd;
+      gs.position =
+          ImVec2(100.0f + static_cast<float>(idx % 5) * 50.0f, 200.0f);
+      gs.running = !autoRun;  // new nodes added during run start stopped
+      gs.previewEnabled = true;
+      graphState.nodes.push_back(std::move(gs));
     }
-    ImGui::TextDisabled("%s", node.id.c_str());
     ImGui::Spacing();
+  };
+
+  for (const auto& [lib, libNodes] : byLibrary) {
+    if (ImGui::CollapsingHeader(lib.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+      for (const auto* nd : libNodes) renderItem(nd);
+    }
   }
+
   ImGui::Separator();
   ImGui::TextUnformatted("Graph");
-  for (std::size_t i = 0; i < graphState.nodes.size(); ++i) {
-    const auto& graphNode = graphState.nodes[i];
+  for (const auto& graphNode : graphState.nodes) {
     ImGui::BulletText("%s", graphNode.node.instanceId.c_str());
-    ImGui::SameLine();
-    ImGui::TextDisabled("%s", graphNode.node.nodeId.c_str());
+    // No gray text here
   }
   ImGui::EndChild();
 }
@@ -294,6 +434,19 @@ void renderGraph(
   }
   ImNodes::GetStyle().GridSpacing = 32.0f * state.zoom;
 
+  // Query hover/selection state outside BeginNodeEditor (scope constraint)
+  std::unordered_set<int> selectedNodeUiIds;
+  {
+    const int n = ImNodes::NumSelectedNodes();
+    if (n > 0) {
+      std::vector<int> ids(static_cast<std::size_t>(n));
+      ImNodes::GetSelectedNodes(ids.data());
+      selectedNodeUiIds.insert(ids.begin(), ids.end());
+    }
+  }
+  int hoveredNodeId = -1;
+  ImNodes::IsNodeHovered(&hoveredNodeId);
+
   ImNodes::BeginNodeEditor();
 
   for (std::size_t i = 0; i < state.nodes.size(); ++i) {
@@ -303,20 +456,56 @@ void renderGraph(
       ImNodes::SetNodeGridSpacePos(uiNodeId, graphNode.position);
       graphNode.positionSet = true;
     }
-    ImNodes::BeginNode(uiNodeId);
-    ImNodes::BeginNodeTitleBar();
-    ImGui::TextUnformatted(graphNode.descriptor.ui.title.empty()
-                               ? graphNode.descriptor.displayName.c_str()
-                               : graphNode.descriptor.ui.title.c_str());
-    ImNodes::EndNodeTitleBar();
+
+    // Orange outline for selected nodes
+    const bool isSelected = selectedNodeUiIds.count(uiNodeId) > 0;
+    if (isSelected) {
+      ImNodes::PushColorStyle(ImNodesCol_NodeOutline,
+                              IM_COL32(255, 140, 0, 255));
+    }
+    // Title bar color: blue for running, gray for stopped
+    if (graphNode.running) {
+      ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(49, 108, 176, 255));
+      ImNodes::PushColorStyle(ImNodesCol_TitleBarHovered,
+                              IM_COL32(65, 130, 200, 255));
+      ImNodes::PushColorStyle(ImNodesCol_TitleBarSelected,
+                              IM_COL32(80, 150, 220, 255));
+    } else {
+      ImNodes::PushColorStyle(ImNodesCol_TitleBar, IM_COL32(70, 70, 75, 255));
+      ImNodes::PushColorStyle(ImNodesCol_TitleBarHovered,
+                              IM_COL32(90, 90, 95, 255));
+      ImNodes::PushColorStyle(ImNodesCol_TitleBarSelected,
+                              IM_COL32(110, 110, 115, 255));
+    }
 
     constexpr float kNodeWidth = 220.0f;
+    constexpr float kToggleW = 28.0f;
 
-    // Enforce minimum node width
+    const bool hasImageOutput = std::any_of(
+        graphNode.descriptor.outputs.begin(),
+        graphNode.descriptor.outputs.end(),
+        [](const auto& p) { return p.type == cvhub::SemanticType::Image; });
+
+    ImNodes::BeginNode(uiNodeId);
+    ImNodes::BeginNodeTitleBar();
+
+    // Title text + right-aligned toggle switch
     ImGui::Dummy(ImVec2(kNodeWidth, 0.0f));
+    const char* titleStr = graphNode.descriptor.ui.title.empty()
+                               ? graphNode.descriptor.displayName.c_str()
+                               : graphNode.descriptor.ui.title.c_str();
+    ImGui::TextUnformatted(titleStr);
+    if (hasImageOutput) {
+      ImGui::SameLine(kNodeWidth - kToggleW);
+      ImGui::PushID(static_cast<int>(i) * 100 + 1);
+      ToggleSwitch("##pt", &graphNode.previewEnabled);
+      ImGui::PopID();
+    }
 
-    // Output preview: use actual texture if available, else placeholder
-    {
+    ImNodes::EndNodeTitleBar();
+
+    // Image preview in body
+    if (hasImageOutput && graphNode.previewEnabled) {
       const auto texIt = previews.find(graphNode.node.instanceId);
       if (texIt != previews.end() && texIt->second.id != 0) {
         const auto& tex = texIt->second;
@@ -325,13 +514,13 @@ void renderGraph(
         ImGui::Image(static_cast<ImTextureID>(tex.id),
                      ImVec2{kNodeWidth, kNodeWidth * aspect});
       } else {
-        constexpr float kPreviewAspect = 9.0f / 16.0f;
-        const ImVec2 previewSz{kNodeWidth, kNodeWidth * kPreviewAspect};
+        constexpr float kAspect = 9.0f / 16.0f;
+        const ImVec2 sz{kNodeWidth, kNodeWidth * kAspect};
         const ImVec2 p0 = ImGui::GetCursorScreenPos();
-        ImGui::Dummy(previewSz);
+        ImGui::Dummy(sz);
         ImGui::GetWindowDrawList()->AddRectFilled(
-            p0, ImVec2{p0.x + previewSz.x, p0.y + previewSz.y},
-            IM_COL32(45, 45, 50, 255), 4.0f);
+            p0, ImVec2{p0.x + sz.x, p0.y + sz.y}, IM_COL32(30, 30, 35, 210),
+            2.0f);
       }
     }
 
@@ -430,6 +619,27 @@ void renderGraph(
     }
 
     ImNodes::EndNode();
+
+    // Pop title bar colors (3 pushed above)
+    ImNodes::PopColorStyle();
+    ImNodes::PopColorStyle();
+    ImNodes::PopColorStyle();
+    // Pop selection outline if pushed
+    if (isSelected) {
+      ImNodes::PopColorStyle();
+    }
+
+    // Toggle run/stop on right-click
+    if (hoveredNodeId == uiNodeId &&
+        ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
+      ImGui::OpenPopup(("##ctx" + std::to_string(i)).c_str());
+    }
+    if (ImGui::BeginPopup(("##ctx" + std::to_string(i)).c_str())) {
+      if (ImGui::MenuItem(graphNode.running ? "Stop" : "Run")) {
+        graphNode.running = !graphNode.running;
+      }
+      ImGui::EndPopup();
+    }
   }
 
   for (std::size_t i = 0; i < state.edges.size(); ++i) {
@@ -621,6 +831,10 @@ void renderProperties(
   GuiNodeState& selected =
       state.nodes[static_cast<std::size_t>(state.selectedIndex)];
 
+  // Show node ID at the very top
+  ImGui::TextUnformatted(selected.node.instanceId.c_str());
+  ImGui::Separator();
+
   // Output image preview
   const float previewW = panelWidth - ImGui::GetStyle().WindowPadding.x * 2.0f;
   const auto previewIt = previews.find(selected.node.instanceId);
@@ -687,11 +901,20 @@ int main() {
   auto services = cvhub::app::createApplication(
       {.logFile = "cvhub-gui.log", .workerCount = 4});
   auto nodes = services->nodeCatalog()->list();
-  GuiGraphState graphState = createGuiGraphState(
-      cvhub::app::createOpenCVSampleGraph(), services->nodeCatalog());
+  GuiGraphState graphState;
+  if (std::filesystem::exists("default.json")) {
+    try {
+      graphState = loadGraph("default.json", services->nodeCatalog());
+    } catch (...) {
+    }
+  }
   bool showProperties = true;
   bool showLog = true;
   std::string status = "Ready";
+  bool openSaveModal = false;
+  bool openLoadModal = false;
+  static char savePathBuf[512] = "graph.json";
+  static char loadPathBuf[512] = "graph.json";
   std::vector<std::string> logLines = {"Ready"};
   std::unordered_map<std::string, NodePreviewTexture> previews;
   bool autoRun = false;
@@ -715,20 +938,29 @@ int main() {
     ImGui::NewFrame();
 
     if (ImGui::BeginMainMenuBar()) {
-      if (ImGui::Button(autoRun ? "Running" : "Build")) {
-        autoRun = !autoRun;
-        if (autoRun) {
+      if (autoRun) {
+        if (ImGui::Button("Stop")) {
+          autoRun = false;
+          logLines.push_back("Stopped.");
+        }
+      } else {
+        if (ImGui::Button("Run")) {
+          autoRun = true;
+          for (auto& n : graphState.nodes) n.running = true;
           const auto result =
               services->pipelineExecutor()->run(buildPipelineGraph(graphState));
           status = result.ok ? result.message : "Error: " + result.message;
-          logLines.push_back(result.ok ? "Build completed: " + result.message
-                                       : "Build failed: " + result.message);
+          logLines.push_back(result.ok ? "Run started: " + result.message
+                                       : "Run failed: " + result.message);
           if (result.ok) uploadNodePreviews(result, previews);
-        } else {
-          logLines.push_back("Stopped.");
         }
       }
       ImGui::Separator();
+      if (ImGui::BeginMenu("File")) {
+        if (ImGui::MenuItem("Save Graph...")) openSaveModal = true;
+        if (ImGui::MenuItem("Load Graph...")) openLoadModal = true;
+        ImGui::EndMenu();
+      }
       if (ImGui::BeginMenu("View")) {
         ImGui::MenuItem("Parameters", nullptr, &showProperties);
         ImGui::MenuItem("Log", nullptr, &showLog);
@@ -744,8 +976,61 @@ int main() {
       ImGui::EndMainMenuBar();
     }
 
+    // Save / Load modals
+    if (openSaveModal) {
+      ImGui::OpenPopup("Save Graph");
+      openSaveModal = false;
+    }
+    if (openLoadModal) {
+      ImGui::OpenPopup("Load Graph");
+      openLoadModal = false;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(420, 0));
+    if (ImGui::BeginPopupModal("Save Graph", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+      ImGui::SetNextItemWidth(380.0f);
+      ImGui::InputText("##savepath", savePathBuf, sizeof(savePathBuf));
+      ImGui::Spacing();
+      if (ImGui::Button("Save", ImVec2(90, 0))) {
+        try {
+          saveGraph(savePathBuf, graphState);
+          status = "Saved: " + std::string(savePathBuf);
+        } catch (const std::exception& e) {
+          status = std::string("Save error: ") + e.what();
+        }
+        ImGui::CloseCurrentPopup();
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Cancel", ImVec2(90, 0))) ImGui::CloseCurrentPopup();
+      ImGui::EndPopup();
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(420, 0));
+    if (ImGui::BeginPopupModal("Load Graph", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+      ImGui::SetNextItemWidth(380.0f);
+      ImGui::InputText("##loadpath", loadPathBuf, sizeof(loadPathBuf));
+      ImGui::Spacing();
+      if (ImGui::Button("Load", ImVec2(90, 0))) {
+        try {
+          graphState = loadGraph(loadPathBuf, services->nodeCatalog());
+          previews.clear();
+          status = "Loaded: " + std::string(loadPathBuf);
+        } catch (const std::exception& e) {
+          status = std::string("Load error: ") + e.what();
+        }
+        ImGui::CloseCurrentPopup();
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Cancel", ImVec2(90, 0))) ImGui::CloseCurrentPopup();
+      ImGui::EndPopup();
+    }
+
     static float leftW = 270.0f;
     static float rightW = 300.0f;
+    static float logH = 118.0f;
+    static std::unordered_map<std::string, int> instanceCounters;
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x, viewport->WorkPos.y));
@@ -754,10 +1039,10 @@ int main() {
     ImGui::Begin("CV_HUB Workspace", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                      ImGuiWindowFlags_NoSavedSettings);
-    const float logHeight = showLog ? 126.0f : 0.0f;
+    const float logHeight = showLog ? (logH + 12.0f) : 0.0f;
     ImGui::BeginChild("main-row", ImVec2(0.0f, -logHeight), false);
 
-    renderNodeList(nodes, graphState, leftW);
+    renderNodeList(nodes, graphState, leftW, autoRun, instanceCounters);
     ImGui::SameLine(0.0f, 0.0f);
 
     // Left splitter
@@ -797,11 +1082,28 @@ int main() {
     }
     ImGui::EndChild();
     if (showLog) {
-      ImGui::BeginChild("log-window", ImVec2(0.0f, 118.0f), true);
+      // Vertical resize handle
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.22f, 0.24f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                            ImVec4(0.92f, 0.45f, 0.15f, 0.8f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                            ImVec4(0.92f, 0.45f, 0.15f, 1.0f));
+      ImGui::Button("##logSplit", ImVec2(-1.0f, 4.0f));
+      ImGui::PopStyleColor(3);
+      if (ImGui::IsItemActive()) {
+        logH = std::clamp(logH - ImGui::GetIO().MouseDelta.y, 60.0f, 400.0f);
+      }
+      if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+      }
+      ImGui::BeginChild("log-window", ImVec2(0.0f, logH), true);
       ImGui::TextUnformatted("Log");
       ImGui::Separator();
       for (const auto& line : logLines) {
         ImGui::TextUnformatted(line.c_str());
+      }
+      if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
+        ImGui::SetScrollHereY(1.0f);
       }
       ImGui::EndChild();
     }

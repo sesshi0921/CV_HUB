@@ -65,6 +65,7 @@ if(CVHUB_BUILD_PLUGIN_OPENCV)
     target_compile_definitions(cvhub_app PUBLIC CVHUB_HAS_OPENCV_PLUGIN=1)
 endif()
 
+
 add_executable(cvhub apps/cvhub/main.cpp)
 target_link_libraries(cvhub PRIVATE cvhub_app)
 set_target_properties(cvhub PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/apps/cvhub")
@@ -147,11 +148,25 @@ if(CVHUB_BUILD_GUI)
         set(CVHUB_IMNODES_PROVIDES_IMGUI ON)
     endif()
 
+    find_package(nlohmann_json CONFIG QUIET)
+    if(NOT TARGET nlohmann_json::nlohmann_json)
+        include(FetchContent)
+        set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
+        FetchContent_Declare(
+            nlohmann_json
+            GIT_REPOSITORY https://github.com/nlohmann/json.git
+            GIT_TAG v3.11.3
+            GIT_SHALLOW TRUE
+        )
+        set(JSON_BuildTests OFF CACHE INTERNAL "")
+        FetchContent_MakeAvailable(nlohmann_json)
+    endif()
+
     add_executable(cvhub_gui apps/cvhub_gui/main.cpp)
     if(CVHUB_IMNODES_PROVIDES_IMGUI)
-        target_link_libraries(cvhub_gui PRIVATE cvhub_app ${CVHUB_IMNODES_TARGET} ${CVHUB_GLFW_TARGET} OpenGL::GL)
+        target_link_libraries(cvhub_gui PRIVATE cvhub_app ${CVHUB_IMNODES_TARGET} ${CVHUB_GLFW_TARGET} OpenGL::GL nlohmann_json::nlohmann_json)
     else()
-        target_link_libraries(cvhub_gui PRIVATE cvhub_app ${CVHUB_IMGUI_TARGET} ${CVHUB_IMNODES_TARGET} ${CVHUB_GLFW_TARGET} OpenGL::GL)
+        target_link_libraries(cvhub_gui PRIVATE cvhub_app ${CVHUB_IMGUI_TARGET} ${CVHUB_IMNODES_TARGET} ${CVHUB_GLFW_TARGET} OpenGL::GL nlohmann_json::nlohmann_json)
     endif()
     find_file(CVHUB_IMGUI_GLFW_BACKEND_SOURCE imgui_impl_glfw.cpp PATH_SUFFIXES backends imgui/backends NO_CACHE)
     find_file(CVHUB_IMGUI_OPENGL3_BACKEND_SOURCE imgui_impl_opengl3.cpp PATH_SUFFIXES backends imgui/backends NO_CACHE)
