@@ -2,27 +2,21 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 # ---------------------------------------------------------------------------
 # Resolve Python venv via pyproject.toml
-# Priority: CVHUB_PYTORCH_PYTHON cache var > uv sync (preferred) > pip > fallback
+# Priority: CVHUB_PYTORCH_PYTHON cache var > existing .venv > fallback
 # ---------------------------------------------------------------------------
 set(CVHUB_PYTORCH_PYTHON "" CACHE FILEPATH "Python interpreter with torchvision installed (auto-detected)")
 set(_VENV_DIR "${CMAKE_SOURCE_DIR}/.venv")
 set(_VENV_PYTHON "${_VENV_DIR}/bin/python3")
 
 if(NOT CVHUB_PYTORCH_PYTHON)
-    find_program(UV_EXECUTABLE uv)
-
-    if(UV_EXECUTABLE)
-        message(STATUS "PyTorch plugin: syncing venv via uv (pyproject.toml)")
+    if(EXISTS "${_VENV_PYTHON}")
         execute_process(
-            COMMAND ${UV_EXECUTABLE} sync --project "${CMAKE_SOURCE_DIR}"
-            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-            RESULT_VARIABLE _uv_result
+            COMMAND "${_VENV_PYTHON}" -c "import torchvision"
+            RESULT_VARIABLE _venv_result
             OUTPUT_QUIET ERROR_QUIET
         )
-        if(_uv_result EQUAL 0 AND EXISTS "${_VENV_PYTHON}")
+        if(_venv_result EQUAL 0)
             set(CVHUB_PYTORCH_PYTHON "${_VENV_PYTHON}")
-        else()
-            message(WARNING "uv sync failed (exit ${_uv_result}), falling back")
         endif()
     endif()
 
@@ -48,7 +42,8 @@ if(NOT CVHUB_PYTORCH_PYTHON)
     if(NOT CVHUB_PYTORCH_PYTHON)
         message(FATAL_ERROR
             "PyTorch plugin: could not find a Python with torchvision.\n"
-            "Install uv and run cmake again, or set CVHUB_PYTORCH_PYTHON manually.")
+            "Create the environment manually (for example: uv sync --project \"${CMAKE_SOURCE_DIR}\")\n"
+            "or set CVHUB_PYTORCH_PYTHON manually.")
     endif()
 endif()
 

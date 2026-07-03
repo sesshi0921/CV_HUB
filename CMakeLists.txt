@@ -42,15 +42,22 @@ add_library(cvhub_core INTERFACE)
 target_include_directories(cvhub_core INTERFACE include)
 target_compile_features(cvhub_core INTERFACE cxx_std_20)
 
-add_library(cvhub_runtime
+set(CVHUB_RUNTIME_SOURCES
     src/runtime/function_node_generator.cpp
     src/runtime/node_catalog.cpp
     src/runtime/pipeline_executor.cpp
-    src/runtime/python_runtime.cpp
     src/runtime/service_container.cpp
     src/runtime/spdlog_logger.cpp
     src/runtime/values.cpp
 )
+
+if(UNIX)
+    list(APPEND CVHUB_RUNTIME_SOURCES src/runtime/python_runtime.cpp)
+else()
+    list(APPEND CVHUB_RUNTIME_SOURCES src/runtime/python_runtime_stub.cpp)
+endif()
+
+add_library(cvhub_runtime ${CVHUB_RUNTIME_SOURCES})
 target_include_directories(cvhub_runtime PUBLIC include)
 target_link_libraries(cvhub_runtime PUBLIC cvhub_core spdlog::spdlog Threads::Threads)
 

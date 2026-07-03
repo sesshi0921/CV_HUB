@@ -48,7 +48,7 @@ class PythonSubprocessRuntime final : public IPythonRuntime {
   std::string workerPath_;
   int toWorkerFd_{-1};
   int fromWorkerFd_{-1};
-  pid_t workerPid_{-1};
+  int workerPid_{-1};
   bool started_{false};
 };
 

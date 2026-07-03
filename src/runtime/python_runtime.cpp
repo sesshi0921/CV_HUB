@@ -4,7 +4,9 @@
 #include <unistd.h>
 
 #include <csignal>
+#include <cctype>
 #include <cstring>
+#include <cstdint>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
@@ -90,30 +92,86 @@ static std::string buildRequestJson(const IPythonRuntime::Request& req) {
   return ss.str();
 }
 
+static std::size_t findJsonValuePos(const std::string& json,
+                                    const std::string& key) {
+  const std::string search = "\"" + key + "\"";
+  auto pos = json.find(search);
+  if (pos == std::string::npos) return std::string::npos;
+  pos += search.size();
+  while (pos < json.size() &&
+         std::isspace(static_cast<unsigned char>(json[pos]))) {
+    ++pos;
+  }
+  if (pos >= json.size() || json[pos] != ':') return std::string::npos;
+  ++pos;
+  while (pos < json.size() &&
+         std::isspace(static_cast<unsigned char>(json[pos]))) {
+    ++pos;
+  }
+  return pos;
+}
+
 static std::string extractJsonString(const std::string& json,
                                      const std::string& key) {
-  const std::string search = "\"" + key + "\":\"";
-  auto pos = json.find(search);
-  if (pos == std::string::npos) return {};
-  pos += search.size();
-  auto end = json.find('"', pos);
-  if (end == std::string::npos) return {};
-  return json.substr(pos, end - pos);
+  auto pos = findJsonValuePos(json, key);
+  if (pos == std::string::npos || pos >= json.size() || json[pos] != '"') {
+    return {};
+  }
+  ++pos;
+
+  std::string value;
+  bool escaped = false;
+  for (; pos < json.size(); ++pos) {
+    const char c = json[pos];
+    if (escaped) {
+      switch (c) {
+        case '"':
+        case '\\':
+        case '/':
+          value += c;
+          break;
+        case 'b':
+          value += '\b';
+          break;
+        case 'f':
+          value += '\f';
+          break;
+        case 'n':
+          value += '\n';
+          break;
+        case 'r':
+          value += '\r';
+          break;
+        case 't':
+          value += '\t';
+          break;
+        default:
+          value += c;
+          break;
+      }
+      escaped = false;
+      continue;
+    }
+    if (c == '\\') {
+      escaped = true;
+      continue;
+    }
+    if (c == '"') return value;
+    value += c;
+  }
+
+  return {};
 }
 
 static int extractJsonInt(const std::string& json, const std::string& key) {
-  const std::string search = "\"" + key + "\":";
-  auto pos = json.find(search);
+  auto pos = findJsonValuePos(json, key);
   if (pos == std::string::npos) return 0;
-  pos += search.size();
   return std::stoi(json.substr(pos));
 }
 
 static bool extractJsonBool(const std::string& json, const std::string& key) {
-  const std::string search = "\"" + key + "\":";
-  auto pos = json.find(search);
+  auto pos = findJsonValuePos(json, key);
   if (pos == std::string::npos) return false;
-  pos += search.size();
   return json.substr(pos, 4) == "true";
 }
 
@@ -154,7 +212,7 @@ void PythonSubprocessRuntime::ensureStarted() {
     throw std::runtime_error("Failed to create pipes for Python worker");
   }
 
-  workerPid_ = ::fork();
+  workerPid_ = static_cast<int>(::fork());
   if (workerPid_ < 0) {
     throw std::runtime_error("fork() failed for Python worker");
   }
@@ -207,7 +265,7 @@ void PythonSubprocessRuntime::shutdown() {
     fromWorkerFd_ = -1;
   }
   if (workerPid_ > 0) {
-    ::waitpid(workerPid_, nullptr, 0);
+    ::waitpid(static_cast<pid_t>(workerPid_), nullptr, 0);
     workerPid_ = -1;
   }
   started_ = false;

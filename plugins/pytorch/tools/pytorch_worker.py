@@ -60,7 +60,7 @@ def _bytes_to_pil(header: dict, image_bytes: bytes):
     arr = arr.reshape(h, w, c)
     if fmt == "BGR8":
         arr = arr[:, :, ::-1].copy()
-        return Image.fromarray(arr, mode="RGB"), "RGB8"
+        return Image.fromarray(arr, mode="RGB"), "BGR8"
     return Image.fromarray(arr, mode="RGB"), "RGB8"
 
 

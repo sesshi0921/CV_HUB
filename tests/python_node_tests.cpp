@@ -4,6 +4,9 @@
 
 // helpers under test (header-only, so include directly)
 #include <cstddef>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
@@ -35,6 +38,7 @@ struct RecordedCall {
   cvhub::ParameterMap params;
   int w, h, c;
   cvhub::PixelFormat fmt;
+  std::vector<std::byte> imageBytes;
 };
 
 class MockPythonRuntime final : public cvhub::IPythonRuntime {
@@ -43,7 +47,8 @@ class MockPythonRuntime final : public cvhub::IPythonRuntime {
   std::optional<RecordedCall> lastCall;
 
   Response call(const Request& req) override {
-    lastCall = RecordedCall{req.fn, req.params, req.w, req.h, req.c, req.fmt};
+    lastCall = RecordedCall{req.fn,       req.params, req.w, req.h,
+                            req.c,        req.fmt,    req.imageBytes};
     return nextResponse;
   }
   void shutdown() override {}
@@ -126,6 +131,69 @@ void test_responseToImage_throws_on_error() {
   }
   require(threw, "should throw on error response");
 }
+
+void test_imageToRequest_tight_packs_strided_image() {
+  using namespace cvhub::plugins::pytorch;
+  std::vector<std::byte> bytes{
+      std::byte{1}, std::byte{2},  std::byte{3},  std::byte{4},
+      std::byte{5}, std::byte{6},  std::byte{0},  std::byte{0},
+      std::byte{7}, std::byte{8},  std::byte{9},  std::byte{10},
+      std::byte{11}, std::byte{12}, std::byte{0}, std::byte{0},
+  };
+  cvhub::ImageValue img(2, 2, 3, 8, cvhub::PixelFormat::RGB8, std::move(bytes));
+
+  const auto req = imageToRequest("resize", img, {});
+  const std::vector<std::byte> expected{
+      std::byte{1}, std::byte{2},  std::byte{3},  std::byte{4},
+      std::byte{5}, std::byte{6},  std::byte{7},  std::byte{8},
+      std::byte{9}, std::byte{10}, std::byte{11}, std::byte{12},
+  };
+  require(req.imageBytes == expected, "image bytes should be tightly packed");
+}
+
+#if defined(__unix__) || defined(__APPLE__)
+void test_python_runtime_unescapes_error_string() {
+  namespace fs = std::filesystem;
+  const fs::path worker =
+      fs::temp_directory_path() / "cvhub_python_runtime_error_worker.py";
+  std::ofstream out(worker);
+  out << R"(#!/usr/bin/env python3
+import json
+import struct
+import sys
+
+header_len_raw = sys.stdin.buffer.read(4)
+if len(header_len_raw) == 4:
+    (header_len,) = struct.unpack("<I", header_len_raw)
+    sys.stdin.buffer.read(header_len)
+    payload = json.dumps({"ok": False, "error": "line1\n\"quoted\"\nline2 \\"}).encode("utf-8")
+    sys.stdout.buffer.write(struct.pack("<I", len(payload)))
+    sys.stdout.buffer.write(payload)
+    sys.stdout.buffer.flush()
+)";
+  out.close();
+
+  const char* pythonPath = std::getenv("PYTHON");
+  if (pythonPath == nullptr || *pythonPath == '\0') {
+    pythonPath = "/usr/bin/python3";
+  }
+  cvhub::PythonSubprocessRuntime runtime(pythonPath, worker.string());
+  cvhub::IPythonRuntime::Request req;
+  req.fn = "noop";
+  req.w = 1;
+  req.h = 1;
+  req.c = 1;
+  req.fmt = cvhub::PixelFormat::Gray8;
+  req.imageBytes = {std::byte{0}};
+
+  const auto resp = runtime.call(req);
+  require(!resp.ok, "response should be an error");
+  require(resp.error.find("line1\n\"quoted\"\nline2") != std::string::npos,
+          "escaped newlines and quotes should be preserved");
+  require(!resp.error.empty() && resp.error.back() == '\\',
+          "escaped trailing backslash should be preserved");
+}
+#endif
 
 // ---- integration tests via GenericImageTransformFactory --------------------
 
@@ -220,6 +288,12 @@ int main() {
       {"imageToRequest_metadata", test_imageToRequest_metadata},
       {"responseToImage_success", test_responseToImage_success},
       {"responseToImage_throws_on_error", test_responseToImage_throws_on_error},
+      {"imageToRequest_tight_packs_strided_image",
+       test_imageToRequest_tight_packs_strided_image},
+#if defined(__unix__) || defined(__APPLE__)
+      {"python_runtime_unescapes_error_string",
+       test_python_runtime_unescapes_error_string},
+#endif
       {"factory_creates_node", test_factory_creates_node},
       {"execute_sends_fn_name_and_metadata",
        test_execute_sends_fn_name_and_metadata},
