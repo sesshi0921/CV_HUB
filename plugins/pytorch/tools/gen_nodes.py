@@ -78,6 +78,7 @@ def _collect_functions() -> list[dict]:
             "fn_name": fn_name,
             "display_name": fn_name.replace("_", " ").title(),
             "scalar_params": scalar_params,
+            "description": inspect.getdoc(fn) or "",
         })
 
     return results
@@ -105,6 +106,14 @@ def _cpp_default(param: dict) -> str:
     if semantic == "String":
         return f'std::string("{val}")'
     return str(val)
+
+
+def _first_paragraph(text: str) -> str:
+    """Return first paragraph of docstring, single-line."""
+    if not text:
+        return ""
+    para = text.split('\n\n')[0]
+    return ' '.join(para.split())
 
 
 def _generate_cpp(functions: list[dict]) -> str:
@@ -135,6 +144,10 @@ def _generate_cpp(functions: list[dict]) -> str:
         lines.append(f'            .qualifiedName = "torchvision.transforms.functional.{fn_name}",')
         lines.append(f'            .displayName = "PyTorch {display}",')
         lines.append('            .category = "pytorch",')
+        raw_desc = _first_paragraph(fn["description"])
+        desc = f'{raw_desc} (torchvision.transforms.functional)' if raw_desc else ''
+        escaped = desc.replace('\\', '\\\\').replace('"', '\\"')
+        lines.append(f'            .description = "{escaped}",')
         lines.append("            .arguments = {")
         lines.append(
             "                {.name = \"image\", .displayName = \"Image\","

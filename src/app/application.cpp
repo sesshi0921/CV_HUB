@@ -1,6 +1,7 @@
 #include "cvhub/app/application.hpp"
 
 #include "cvhub/app/sample_graph.hpp"
+#include "cvhub/plugins/common/common_plugin.hpp"
 
 #ifdef CVHUB_HAS_OPENCV_PLUGIN
 #include "cvhub/plugins/opencv/opencv_plugin.hpp"
@@ -18,6 +19,8 @@ std::shared_ptr<ServiceContainer> createApplication(
     const ApplicationOptions& options) {
   auto services = std::make_shared<ServiceContainer>();
   services->setLogger(createSpdlogFileLogger(options.logFile));
+
+  plugins::common::registerCommonPlugin(*services);
 
 #ifdef CVHUB_HAS_OPENCV_PLUGIN
   plugins::opencv::registerOpenCVPlugin(*services);
