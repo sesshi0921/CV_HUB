@@ -40,6 +40,68 @@ def camel_to_snake(name: str) -> str:
     return s.lower()
 
 
+def extract_description(original_content: str, func_name: str, header_name: str) -> str:
+    """Extract comment block immediately preceding CV_EXPORTS_W <func_name>."""
+    lines = original_content.splitlines()
+    target_idx = None
+    for i, line in enumerate(lines):
+        if 'CV_EXPORTS_W' in line:
+            window = ' '.join(lines[i:min(i + 5, len(lines))])
+            if func_name in window:
+                target_idx = i
+                break
+    if target_idx is None:
+        return ''
+    comment_lines = []
+    in_block = False
+    i = target_idx - 1
+    while i >= 0:
+        stripped = lines[i].strip()
+        if not stripped:
+            i -= 1
+            continue
+        if stripped.endswith('*/'):
+            in_block = True
+            comment_lines.insert(0, stripped)
+            i -= 1
+            continue
+        if in_block and re.match(r'^/\*', stripped):
+            comment_lines.insert(0, stripped)
+            in_block = False
+            i -= 1
+            break
+        if in_block:
+            comment_lines.insert(0, stripped)
+            i -= 1
+            continue
+        if stripped.startswith('//'):
+            comment_lines.insert(0, stripped)
+            i -= 1
+            continue
+        break
+    if not comment_lines:
+        return ''
+    text_lines = []
+    brief_found = False
+    for line in comment_lines:
+        line = re.sub(r'^/\*+[!<]?\s*', '', line)
+        line = re.sub(r'\*/\s*$', '', line)
+        line = re.sub(r'^\*+\s*', '', line)
+        line = re.sub(r'^//+[!<]?\s*', '', line)
+        m = re.match(r'@brief\s+(.*)', line)
+        if m:
+            text_lines = [m.group(1).strip()]
+            brief_found = True
+            break
+        if line.strip():
+            text_lines.append(line.strip())
+    if brief_found or text_lines:
+        text = ' '.join(text_lines).strip()
+        if text:
+            return f'{text} ({header_name})'
+    return ''
+
+
 # ─── header parsing ───────────────────────────────────────────────────────────
 
 def split_params(params_str: str) -> list[str]:
@@ -73,9 +135,8 @@ def parse_param(p: str):
 
 def parse_header(path: str) -> list[dict]:
     """Extract all CV_EXPORTS_W functions that have (InputArray src, OutputArray dst) pattern."""
-    content = Path(path).read_text(encoding='utf-8', errors='ignore')
-    # Strip line-comments to avoid confusing the regex
-    content = re.sub(r'//[^\n]*', '', content)
+    original_content = Path(path).read_text(encoding='utf-8', errors='ignore')
+    content = re.sub(r'//[^\n]*', '', original_content)
     # Match: CV_EXPORTS_W <ret> <name>(<params>);
     pattern = re.compile(
         r'CV_EXPORTS_W\s+(?:void|(?:\w[\w:]*?))\s+(\w+)\s*\(([^;]+?)\)\s*;',
@@ -95,7 +156,8 @@ def parse_header(path: str) -> list[dict]:
         has_out = any(base_type(t) in OUTPUT_TYPES for t, _, _ in params)
         if not has_in or not has_out:
             continue
-        results.append({'name': func_name, 'params': params})
+        description = extract_description(original_content, func_name, Path(path).name)
+        results.append({'name': func_name, 'params': params, 'description': description})
     return results
 
 
@@ -240,6 +302,15 @@ def generate(functions: list[dict], header_includes: list[str]) -> str:
     desc_entries   = []
     factory_entries = []
 
+    # Group descriptions by function key (multiple headers may describe same function)
+    desc_map: dict[str, list[str]] = {}
+    for func in functions:
+        snake = camel_to_snake(func['name'])
+        key = f'opencv.{snake}'
+        desc = func.get('description', '')
+        if desc:
+            desc_map.setdefault(key, []).append(desc)
+
     for func in functions:
         result = build_function(func)
         if result is None:
@@ -253,6 +324,8 @@ def generate(functions: list[dict], header_includes: list[str]) -> str:
         desc_param_args = '\n        '.join(
             f'        {a},' for a in desc_args
         )
+        raw_desc = '\n'.join(desc_map.get(key, []))
+        escaped_description = raw_desc.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
         desc_entries.append(f"""\
     FunctionDescriptor{{
       .library     = "opencv",
@@ -261,6 +334,7 @@ def generate(functions: list[dict], header_includes: list[str]) -> str:
       .qualifiedName = "cv::{name}",
       .displayName   = "cv::{name}",
       .category      = "filter",
+      .description   = "{escaped_description}",
       .arguments = {{
         {{.name="image",.displayName="Image",.semanticType=SemanticType::Image,.direction=ArgumentDirection::Input}},
         {{.name="image",.displayName="Image",.semanticType=SemanticType::Image,.direction=ArgumentDirection::Output}},

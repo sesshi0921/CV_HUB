@@ -7,7 +7,7 @@ PipelineGraph createOpenCVSampleGraph() {
   graph.nodes = {
       GraphNode{
           .instanceId = "source",
-          .nodeId = "opencv.test_image",
+          .nodeId = "common.test_image",
           .parameters = {{"width", 640}, {"height", 360}},
       },
       GraphNode{

@@ -68,6 +68,9 @@ add_library(cvhub_app
 target_include_directories(cvhub_app PUBLIC include)
 target_link_libraries(cvhub_app PUBLIC cvhub_runtime)
 
+add_subdirectory(plugins/common)
+target_link_libraries(cvhub_app PUBLIC cvhub_plugin_common)
+
 if(CVHUB_BUILD_PLUGIN_OPENCV)
     add_subdirectory(plugins/opencv)
     target_link_libraries(cvhub_app PUBLIC cvhub_plugin_opencv)

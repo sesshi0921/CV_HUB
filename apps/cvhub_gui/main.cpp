@@ -447,7 +447,7 @@ void renderNodeList(const std::vector<cvhub::NodeDescriptor>& nodes,
 
   auto renderItem = [&](const cvhub::NodeDescriptor* nd) {
     ImGui::Selectable(nd->displayName.c_str(), false);
-    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+    if (ImGui::IsItemClicked()) {
       const std::string funcKey = nd->library + "." + nd->functionName;
       const int idx = instanceCounters[funcKey]++;
       cvhub::GraphNode newNode;
@@ -462,15 +462,22 @@ void renderNodeList(const std::vector<cvhub::NodeDescriptor>& nodes,
       gs.descriptor = *nd;
       gs.position =
           ImVec2(100.0f + static_cast<float>(idx % 5) * 50.0f, 200.0f);
-      gs.running = !autoRun;  // new nodes added during run start stopped
+      gs.running = !autoRun;
       gs.previewEnabled = true;
       graphState.nodes.push_back(std::move(gs));
+    }
+    if (ImGui::IsItemHovered() && !nd->ui.summary.empty()) {
+      ImGui::BeginTooltip();
+      ImGui::PushTextWrapPos(600.0f);
+      ImGui::TextUnformatted(nd->ui.summary.c_str());
+      ImGui::PopTextWrapPos();
+      ImGui::EndTooltip();
     }
     ImGui::Spacing();
   };
 
   for (const auto& [lib, libNodes] : byLibrary) {
-    if (ImGui::CollapsingHeader(lib.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::CollapsingHeader(lib.c_str(), ImGuiTreeNodeFlags_None)) {
       for (const auto* nd : libNodes) renderItem(nd);
     }
   }
@@ -943,6 +950,11 @@ void renderProperties(
   ImGui::TextDisabled("%s", selected.node.instanceId.c_str());
   ImGui::Separator();
 
+  if (!selected.descriptor.ui.summary.empty()) {
+    ImGui::TextWrapped("%s", selected.descriptor.ui.summary.c_str());
+    ImGui::Separator();
+  }
+
   if (selected.descriptor.parameters.empty()) {
     ImGui::TextDisabled("No editable parameters");
   }
@@ -991,6 +1003,7 @@ int main() {
     } catch (...) {
     }
   }
+  bool showNodes = true;
   bool showProperties = true;
   bool showLog = true;
   std::string status = "Ready";
@@ -1045,6 +1058,7 @@ int main() {
         ImGui::EndMenu();
       }
       if (ImGui::BeginMenu("View")) {
+        ImGui::MenuItem("Nodes", nullptr, &showNodes);
         ImGui::MenuItem("Parameters", nullptr, &showProperties);
         ImGui::MenuItem("Log", nullptr, &showLog);
         ImGui::EndMenu();
@@ -1125,22 +1139,24 @@ int main() {
     const float logHeight = showLog ? (logH + 12.0f) : 0.0f;
     ImGui::BeginChild("main-row", ImVec2(0.0f, -logHeight), false);
 
-    renderNodeList(nodes, graphState, leftW, autoRun, instanceCounters);
-    ImGui::SameLine(0.0f, 0.0f);
+    if (showNodes) {
+      renderNodeList(nodes, graphState, leftW, autoRun, instanceCounters);
+      ImGui::SameLine(0.0f, 0.0f);
 
-    // Left splitter
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.22f, 0.24f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-                          ImVec4(0.92f, 0.45f, 0.15f, 0.8f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive,
-                          ImVec4(0.92f, 0.45f, 0.15f, 1.0f));
-    ImGui::Button("##lsplit", ImVec2(4.0f, -1.0f));
-    ImGui::PopStyleColor(3);
-    if (ImGui::IsItemActive())
-      leftW = std::clamp(leftW + ImGui::GetIO().MouseDelta.x, 100.0f, 500.0f);
-    if (ImGui::IsItemHovered() || ImGui::IsItemActive())
-      ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
-    ImGui::SameLine(0.0f, 0.0f);
+      // Left splitter
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.22f, 0.24f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                            ImVec4(0.92f, 0.45f, 0.15f, 0.8f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                            ImVec4(0.92f, 0.45f, 0.15f, 1.0f));
+      ImGui::Button("##lsplit", ImVec2(4.0f, -1.0f));
+      ImGui::PopStyleColor(3);
+      if (ImGui::IsItemActive())
+        leftW = std::clamp(leftW + ImGui::GetIO().MouseDelta.x, 100.0f, 500.0f);
+      if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+      ImGui::SameLine(0.0f, 0.0f);
+    }
 
     const float graphReserve = showProperties ? (rightW + 4.0f) : 0.0f;
     renderGraph(graphState, graphReserve, previews);
