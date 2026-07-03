@@ -166,7 +166,8 @@ header_len_raw = sys.stdin.buffer.read(4)
 if len(header_len_raw) == 4:
     (header_len,) = struct.unpack("<I", header_len_raw)
     sys.stdin.buffer.read(header_len)
-    payload = json.dumps({"ok": False, "error": "line1\n\"quoted\"\nline2 \\"}).encode("utf-8")
+    error_text = "line1\n\"quoted\"\nline2 " + "\\"
+    payload = json.dumps({"ok": False, "error": error_text}).encode("utf-8")
     sys.stdout.buffer.write(struct.pack("<I", len(payload)))
     sys.stdout.buffer.write(payload)
     sys.stdout.buffer.flush()
