@@ -19,6 +19,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(CVHUB_BUILD_PLUGIN_OPENCV "Build the OpenCV plugin" ON)
+option(CVHUB_BUILD_PLUGIN_PYTORCH "Build the PyTorch plugin" ON)
 option(CVHUB_BUILD_GUI "Build the Dear ImGui/imnodes graph editor" ON)
 option(CVHUB_BUILD_TESTS "Build CV_HUB tests" ON)
 option(CVHUB_FETCH_GUI_DEPS "Fetch Dear ImGui when no CMake package is available" ON)
@@ -45,6 +46,7 @@ add_library(cvhub_runtime
     src/runtime/function_node_generator.cpp
     src/runtime/node_catalog.cpp
     src/runtime/pipeline_executor.cpp
+    src/runtime/python_runtime.cpp
     src/runtime/service_container.cpp
     src/runtime/spdlog_logger.cpp
     src/runtime/values.cpp
@@ -65,6 +67,11 @@ if(CVHUB_BUILD_PLUGIN_OPENCV)
     target_compile_definitions(cvhub_app PUBLIC CVHUB_HAS_OPENCV_PLUGIN=1)
 endif()
 
+if(CVHUB_BUILD_PLUGIN_PYTORCH)
+    add_subdirectory(plugins/pytorch)
+    target_link_libraries(cvhub_app PUBLIC cvhub_plugin_pytorch)
+    target_compile_definitions(cvhub_app PUBLIC CVHUB_HAS_PYTORCH_PLUGIN=1)
+endif()
 
 add_executable(cvhub apps/cvhub/main.cpp)
 target_link_libraries(cvhub PRIVATE cvhub_app)
@@ -181,4 +188,9 @@ if(CVHUB_BUILD_TESTS AND CVHUB_BUILD_PLUGIN_OPENCV)
     add_executable(cvhub_tests tests/runtime_tests.cpp)
     target_link_libraries(cvhub_tests PRIVATE cvhub_app)
     add_test(NAME cvhub_runtime_tests COMMAND cvhub_tests)
+
+    add_executable(cvhub_python_node_tests tests/python_node_tests.cpp)
+    target_link_libraries(cvhub_python_node_tests PRIVATE cvhub_runtime)
+    target_include_directories(cvhub_python_node_tests PRIVATE plugins/pytorch/include plugins/pytorch/src)
+    add_test(NAME cvhub_python_node_tests COMMAND cvhub_python_node_tests)
 endif()
