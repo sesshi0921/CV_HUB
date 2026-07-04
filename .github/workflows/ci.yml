@@ -24,7 +24,7 @@ jobs:
       lint_cpp_all_changed_files: ${{ steps.changed.outputs.lint_cpp_all_changed_files }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -56,7 +56,7 @@ jobs:
     needs: changed-files
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Cache apt formatter packages
         if: needs.changed-files.outputs.cpp_any_changed == 'true'
@@ -67,10 +67,9 @@ jobs:
 
       - name: Set up Python
         if: needs.changed-files.outputs.python_any_changed == 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-          cache: pip
 
       - name: Install Ruff
         if: needs.changed-files.outputs.python_any_changed == 'true'
@@ -102,7 +101,7 @@ jobs:
       - format
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Cache apt lint/build packages
         if: needs.changed-files.outputs.lint_cpp_any_changed == 'true'
@@ -113,10 +112,9 @@ jobs:
 
       - name: Set up Python
         if: needs.changed-files.outputs.python_any_changed == 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-          cache: pip
 
       - name: Install Ruff
         if: needs.changed-files.outputs.python_any_changed == 'true'

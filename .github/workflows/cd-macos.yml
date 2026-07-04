@@ -19,7 +19,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install dependencies
         run: |
@@ -50,7 +50,7 @@ jobs:
           (cd dist && zip -r "${artifact}.zip" "${artifact}")
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: CV_HUB-macos-${{ github.ref_name }}-${{ github.sha }}
           path: dist/*.zip
