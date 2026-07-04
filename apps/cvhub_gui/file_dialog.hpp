@@ -9,4 +9,4 @@ std::optional<std::string> openJsonFileDialog(const std::string& currentPath);
 std::optional<std::string> saveJsonFileDialog(const std::string& currentPath);
 void applyNativeAppIcon();
 
-}  // namespace cvhub::gui
+} // namespace cvhub::gui

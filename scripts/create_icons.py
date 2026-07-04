@@ -1,6 +1,6 @@
 import argparse
-import os
 from pathlib import Path
+
 from PIL import Image
 
 

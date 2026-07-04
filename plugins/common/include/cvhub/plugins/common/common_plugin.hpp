@@ -6,4 +6,4 @@ namespace cvhub::plugins::common {
 
 void registerCommonPlugin(ServiceContainer& services);
 
-}  // namespace cvhub::plugins::common
+} // namespace cvhub::plugins::common

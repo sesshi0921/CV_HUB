@@ -22,9 +22,9 @@ import traceback
 _proto_out = sys.stdout.buffer
 sys.stdout = sys.stderr
 
-import numpy as np  # pylint: disable=wrong-import-position
-import torchvision.transforms.functional as F  # pylint: disable=wrong-import-position
-from PIL import Image  # pylint: disable=wrong-import-position
+import numpy as np  # noqa: E402  # pylint: disable=wrong-import-position
+import torchvision.transforms.functional as F  # noqa: E402  # pylint: disable=wrong-import-position
+from PIL import Image  # noqa: E402  # pylint: disable=wrong-import-position
 
 
 def _read_message():
@@ -101,6 +101,7 @@ def _main():
             if not isinstance(result_img, Image.Image):
                 # Some functions return Tensor — convert back
                 import torch  # noqa: PLC0415
+
                 if isinstance(result_img, torch.Tensor):
                     result_img = F.to_pil_image(result_img)
                 else:

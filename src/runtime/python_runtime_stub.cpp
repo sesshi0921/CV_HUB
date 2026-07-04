@@ -10,22 +10,21 @@ namespace {
 constexpr const char* kUnsupportedMessage =
     "PythonSubprocessRuntime is only supported on UNIX platforms";
 
-}  // namespace
+} // namespace
 
-PythonSubprocessRuntime::PythonSubprocessRuntime(std::string pythonPath,
-                                                 std::string workerPath)
+PythonSubprocessRuntime::PythonSubprocessRuntime(std::string pythonPath, std::string workerPath)
     : pythonPath_(std::move(pythonPath)), workerPath_(std::move(workerPath)) {}
 
 PythonSubprocessRuntime::~PythonSubprocessRuntime() = default;
 
 void PythonSubprocessRuntime::ensureStarted() {
-  throw std::runtime_error(kUnsupportedMessage);
+    throw std::runtime_error(kUnsupportedMessage);
 }
 
 IPythonRuntime::Response PythonSubprocessRuntime::call(const Request&) {
-  throw std::runtime_error(kUnsupportedMessage);
+    throw std::runtime_error(kUnsupportedMessage);
 }
 
 void PythonSubprocessRuntime::shutdown() {}
 
-}  // namespace cvhub
+} // namespace cvhub

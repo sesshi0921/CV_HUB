@@ -1,0 +1,71 @@
+name: CD Windows
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Windows artifact
+    runs-on: windows-latest
+    env:
+      VCPKG_BINARY_SOURCES: clear;x-gha,readwrite
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Export GitHub Actions cache variables for vcpkg
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '')
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '')
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build/release `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DCVHUB_BUILD_PLUGIN_PYTORCH=OFF `
+            -DCVHUB_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build/release --config Release
+
+      - name: Test
+        run: ctest --test-dir build/release --build-config Release --output-on-failure
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $shortSha = "${{ github.sha }}".Substring(0, 7)
+          $artifact = "CV_HUB-windows-${{ github.ref_name }}-$shortSha"
+          New-Item -ItemType Directory -Force -Path "dist/$artifact" | Out-Null
+          Copy-Item "build/release/apps/cvhub_gui/Release/CV_HUB.exe" "dist/$artifact/" -ErrorAction Stop
+          Copy-Item "build/release/apps/cvhub/Release/cvhub.exe" "dist/$artifact/" -ErrorAction Stop
+          Copy-Item "README.md" "dist/$artifact/" -ErrorAction Stop
+          if (Test-Path "build/release/apps/cvhub_gui/Release/*.dll") {
+            Copy-Item "build/release/apps/cvhub_gui/Release/*.dll" "dist/$artifact/" -ErrorAction SilentlyContinue
+          }
+          if (Test-Path "build/release/apps/cvhub/Release/*.dll") {
+            Copy-Item "build/release/apps/cvhub/Release/*.dll" "dist/$artifact/" -ErrorAction SilentlyContinue
+          }
+          Compress-Archive -Path "dist/$artifact" -DestinationPath "dist/$artifact.zip" -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CV_HUB-windows-${{ github.ref_name }}-${{ github.sha }}
+          path: dist/*.zip
+          if-no-files-found: error

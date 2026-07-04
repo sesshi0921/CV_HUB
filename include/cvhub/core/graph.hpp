@@ -33,7 +33,7 @@ struct PipelineRunResult {
 };
 
 class IPipelineExecutor {
-public:
+  public:
     virtual ~IPipelineExecutor() = default;
     virtual PipelineRunResult run(const PipelineGraph& graph) = 0;
 };

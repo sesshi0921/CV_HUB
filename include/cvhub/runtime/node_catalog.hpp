@@ -8,13 +8,14 @@
 namespace cvhub {
 
 class NodeCatalog final : public INodeCatalog {
-public:
-    void registerNode(NodeDescriptor descriptor, std::shared_ptr<const INodeFactory> factory) override;
+  public:
+    void registerNode(NodeDescriptor descriptor,
+                      std::shared_ptr<const INodeFactory> factory) override;
     const NodeDescriptor& descriptor(const NodeId& nodeId) const override;
     std::unique_ptr<INode> create(const NodeId& nodeId) const override;
     std::vector<NodeDescriptor> list() const override;
 
-private:
+  private:
     struct Entry {
         NodeDescriptor descriptor;
         std::shared_ptr<const INodeFactory> factory;

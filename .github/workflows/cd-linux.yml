@@ -1,0 +1,65 @@
+name: CD Linux
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Linux artifact
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            ninja-build \
+            g++ \
+            libgl1-mesa-dev \
+            libglfw3-dev \
+            libopencv-dev \
+            libspdlog-dev \
+            xorg-dev
+
+      - name: Configure
+        run: |
+          cmake -S . -B build/release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCVHUB_BUILD_PLUGIN_PYTORCH=OFF \
+            -DCVHUB_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build/release --config Release
+
+      - name: Test
+        run: ctest --test-dir build/release --output-on-failure
+
+      - name: Package
+        shell: bash
+        run: |
+          artifact="CV_HUB-linux-${GITHUB_REF_NAME}-${GITHUB_SHA::7}"
+          mkdir -p "dist/${artifact}"
+          cp build/release/apps/cvhub_gui/CV_HUB "dist/${artifact}/"
+          cp build/release/apps/cvhub/cvhub "dist/${artifact}/"
+          cp README.md "dist/${artifact}/"
+          tar -C dist -czf "dist/${artifact}.tar.gz" "${artifact}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CV_HUB-linux-${{ github.ref_name }}-${{ github.sha }}
+          path: dist/*.tar.gz
+          if-no-files-found: error

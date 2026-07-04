@@ -6,37 +6,36 @@ and emits C++ registration code for cvhub.
 Usage: gen_opencv_nodes.py --headers <h1> [<h2>...] --output <out.cpp>
 """
 
-import re
 import argparse
+import re
 import sys
 from pathlib import Path
 
-
 # ─── type classification ─────────────────────────────────────────────────────
 
-INPUT_TYPES  = {'InputArray', 'InputArrayOfArrays'}
-OUTPUT_TYPES = {'OutputArray', 'OutputArrayOfArrays'}
+INPUT_TYPES = {"InputArray", "InputArrayOfArrays"}
+OUTPUT_TYPES = {"OutputArray", "OutputArrayOfArrays"}
 
 # Maps C++ base type → (SemanticType, cpp_reader, default_extractor)
 SCALAR_MAP = {
-    'int':    'Integer',
-    'double': 'Float',
-    'float':  'Float',
-    'bool':   'Boolean',
-    'Size':   'Integer',  # exposed as single int → cv::Size(k, k)
+    "int": "Integer",
+    "double": "Float",
+    "float": "Float",
+    "bool": "Boolean",
+    "Size": "Integer",  # exposed as single int → cv::Size(k, k)
 }
 
 
 def base_type(type_str: str) -> str:
     """Strip const / ref / cv:: / qualifiers."""
-    t = re.sub(r'\b(const|CV_IN_OUT|CV_OUT|CV_IN)\b', '', type_str)
-    t = re.sub(r'[&*]', '', t)
-    t = re.sub(r'\bcv::', '', t)
+    t = re.sub(r"\b(const|CV_IN_OUT|CV_OUT|CV_IN)\b", "", type_str)
+    t = re.sub(r"[&*]", "", t)
+    t = re.sub(r"\bcv::", "", t)
     return t.strip()
 
 
 def camel_to_snake(name: str) -> str:
-    s = re.sub(r'(?<=[a-z0-9])([A-Z])', r'_\1', name)
+    s = re.sub(r"(?<=[a-z0-9])([A-Z])", r"_\1", name)
     return s.lower()
 
 
@@ -45,13 +44,13 @@ def extract_description(original_content: str, func_name: str, header_name: str)
     lines = original_content.splitlines()
     target_idx = None
     for i, line in enumerate(lines):
-        if 'CV_EXPORTS_W' in line:
-            window = ' '.join(lines[i:min(i + 5, len(lines))])
+        if "CV_EXPORTS_W" in line:
+            window = " ".join(lines[i : min(i + 5, len(lines))])
             if func_name in window:
                 target_idx = i
                 break
     if target_idx is None:
-        return ''
+        return ""
     comment_lines = []
     in_block = False
     i = target_idx - 1
@@ -60,12 +59,12 @@ def extract_description(original_content: str, func_name: str, header_name: str)
         if not stripped:
             i -= 1
             continue
-        if stripped.endswith('*/'):
+        if stripped.endswith("*/"):
             in_block = True
             comment_lines.insert(0, stripped)
             i -= 1
             continue
-        if in_block and re.match(r'^/\*', stripped):
+        if in_block and re.match(r"^/\*", stripped):
             comment_lines.insert(0, stripped)
             in_block = False
             i -= 1
@@ -74,21 +73,21 @@ def extract_description(original_content: str, func_name: str, header_name: str)
             comment_lines.insert(0, stripped)
             i -= 1
             continue
-        if stripped.startswith('//'):
+        if stripped.startswith("//"):
             comment_lines.insert(0, stripped)
             i -= 1
             continue
         break
     if not comment_lines:
-        return ''
+        return ""
     text_lines = []
     brief_found = False
     for line in comment_lines:
-        line = re.sub(r'^/\*+[!<]?\s*', '', line)
-        line = re.sub(r'\*/\s*$', '', line)
-        line = re.sub(r'^\*+\s*', '', line)
-        line = re.sub(r'^//+[!<]?\s*', '', line)
-        m = re.match(r'@brief\s+(.*)', line)
+        line = re.sub(r"^/\*+[!<]?\s*", "", line)
+        line = re.sub(r"\*/\s*$", "", line)
+        line = re.sub(r"^\*+\s*", "", line)
+        line = re.sub(r"^//+[!<]?\s*", "", line)
+        m = re.match(r"@brief\s+(.*)", line)
         if m:
             text_lines = [m.group(1).strip()]
             brief_found = True
@@ -96,27 +95,28 @@ def extract_description(original_content: str, func_name: str, header_name: str)
         if line.strip():
             text_lines.append(line.strip())
     if brief_found or text_lines:
-        text = ' '.join(text_lines).strip()
+        text = " ".join(text_lines).strip()
         if text:
-            return f'{text} ({header_name})'
-    return ''
+            return f"{text} ({header_name})"
+    return ""
 
 
 # ─── header parsing ───────────────────────────────────────────────────────────
 
+
 def split_params(params_str: str) -> list[str]:
     """Split on commas at depth 0 (respects <> and ())."""
-    parts, depth, curr = [], 0, ''
+    parts, depth, curr = [], 0, ""
     for ch in params_str:
-        if ch in '<(':
+        if ch in "<(":
             depth += 1
             curr += ch
-        elif ch in '>)':
+        elif ch in ">)":
             depth -= 1
             curr += ch
-        elif ch == ',' and depth == 0:
+        elif ch == "," and depth == 0:
             parts.append(curr.strip())
-            curr = ''
+            curr = ""
         else:
             curr += ch
     if curr.strip():
@@ -126,8 +126,8 @@ def split_params(params_str: str) -> list[str]:
 
 def parse_param(p: str):
     """Return (type_str, name, default_str | None) or None."""
-    p = re.sub(r'\s+', ' ', p).strip()
-    m = re.match(r'^(.*?)\s+(\w+)\s*(?:=\s*(.+))?$', p)
+    p = re.sub(r"\s+", " ", p).strip()
+    m = re.match(r"^(.*?)\s+(\w+)\s*(?:=\s*(.+))?$", p)
     if not m:
         return None
     return m.group(1).strip(), m.group(2).strip(), (m.group(3).strip() if m.group(3) else None)
@@ -135,33 +135,33 @@ def parse_param(p: str):
 
 def parse_header(path: str) -> list[dict]:
     """Extract all CV_EXPORTS_W functions that have (InputArray src, OutputArray dst) pattern."""
-    original_content = Path(path).read_text(encoding='utf-8', errors='ignore')
-    content = re.sub(r'//[^\n]*', '', original_content)
+    original_content = Path(path).read_text(encoding="utf-8", errors="ignore")
+    content = re.sub(r"//[^\n]*", "", original_content)
     # Match: CV_EXPORTS_W <ret> <name>(<params>);
     pattern = re.compile(
-        r'CV_EXPORTS_W\s+(?:void|(?:\w[\w:]*?))\s+(\w+)\s*\(([^;]+?)\)\s*;',
-        re.DOTALL
+        r"CV_EXPORTS_W\s+(?:void|(?:\w[\w:]*?))\s+(\w+)\s*\(([^;]+?)\)\s*;", re.DOTALL
     )
     results = []
     for m in pattern.finditer(content):
         func_name = m.group(1)
-        params_raw = re.sub(r'\s+', ' ', m.group(2))
+        params_raw = re.sub(r"\s+", " ", m.group(2))
         raw_params = split_params(params_raw)
         params = [parse_param(p) for p in raw_params]
         params = [p for p in params if p is not None]
         if not params:
             continue
         # Needs both input and output image ports
-        has_in  = any(base_type(t) in INPUT_TYPES  for t, _, _ in params)
+        has_in = any(base_type(t) in INPUT_TYPES for t, _, _ in params)
         has_out = any(base_type(t) in OUTPUT_TYPES for t, _, _ in params)
         if not has_in or not has_out:
             continue
         description = extract_description(original_content, func_name, Path(path).name)
-        results.append({'name': func_name, 'params': params, 'description': description})
+        results.append({"name": func_name, "params": params, "description": description})
     return results
 
 
 # ─── per-function code generation ────────────────────────────────────────────
+
 
 def build_function(func: dict):
     """
@@ -170,96 +170,91 @@ def build_function(func: dict):
     descriptor_args: list of ArgumentDescriptor snippets for params
     call_args     : ordered list of args to pass to cv::FuncName(...)
     """
-    params = func['params']
+    params = func["params"]
     lambda_decls = []
-    call_args    = []
-    desc_args    = []
+    call_args = []
+    desc_args = []
 
     for type_str, name, default in params:
         bt = base_type(type_str)
 
         if bt in INPUT_TYPES:
-            call_args.append('src')
+            call_args.append("src")
             continue
 
         if bt in OUTPUT_TYPES:
-            call_args.append('dst')
+            call_args.append("dst")
             continue
 
         # ── int ─────────────────────────────────────────────────────────────
-        if bt == 'int':
+        if bt == "int":
             dv = 0
             if default:
-                m = re.search(r'-?\d+', default)
+                m = re.search(r"-?\d+", default)
                 if m:
                     try:
                         dv = int(m.group(0))
                     except ValueError:
                         pass
-            lambda_decls.append(
-                f'        const int {name} = parameterAs<int>(p, "{name}", {dv});'
-            )
+            lambda_decls.append(f'        const int {name} = parameterAs<int>(p, "{name}", {dv});')
             call_args.append(name)
             desc_args.append(
                 f'{{.name="{name}",.displayName="{name}",'
-                f'.semanticType=SemanticType::Integer,'
-                f'.direction=ArgumentDirection::Parameter,.defaultValue=(int){dv}}}'
+                f".semanticType=SemanticType::Integer,"
+                f".direction=ArgumentDirection::Parameter,.defaultValue=(int){dv}}}"
             )
             continue
 
         # ── double / float ───────────────────────────────────────────────────
-        if bt in ('double', 'float'):
+        if bt in ("double", "float"):
             dv = 0.0
             if default:
-                m = re.search(r'-?[\d.]+', default)
+                m = re.search(r"-?[\d.]+", default)
                 if m:
                     try:
                         dv = float(m.group(0))
                     except ValueError:
                         pass
-            if bt == 'double':
+            if bt == "double":
                 lambda_decls.append(
                     f'        const double {name} = parameterAs<double>(p, "{name}", {dv:.6g});'
                 )
             else:
                 lambda_decls.append(
-                    f'        const float {name} = static_cast<float>(parameterAs<double>(p, "{name}", {dv:.6g}));'
+                    f"        const float {name} = static_cast<float>("
+                    f'parameterAs<double>(p, "{name}", {dv:.6g}));'
                 )
             call_args.append(name)
             desc_args.append(
                 f'{{.name="{name}",.displayName="{name}",'
-                f'.semanticType=SemanticType::Float,'
-                f'.direction=ArgumentDirection::Parameter,.defaultValue=(double){dv:.6g}}}'
+                f".semanticType=SemanticType::Float,"
+                f".direction=ArgumentDirection::Parameter,.defaultValue=(double){dv:.6g}}}"
             )
             continue
 
         # ── bool ─────────────────────────────────────────────────────────────
-        if bt == 'bool':
-            dv_cpp = 'true' if default and 'true' in default.lower() else 'false'
+        if bt == "bool":
+            dv_cpp = "true" if default and "true" in default.lower() else "false"
             lambda_decls.append(
                 f'        const bool {name} = parameterAs<bool>(p, "{name}", {dv_cpp});'
             )
             call_args.append(name)
             desc_args.append(
                 f'{{.name="{name}",.displayName="{name}",'
-                f'.semanticType=SemanticType::Boolean,'
-                f'.direction=ArgumentDirection::Parameter,.defaultValue=(bool){dv_cpp}}}'
+                f".semanticType=SemanticType::Boolean,"
+                f".direction=ArgumentDirection::Parameter,.defaultValue=(bool){dv_cpp}}}"
             )
             continue
 
         # ── Size (expose as square-kernel int) ───────────────────────────────
-        if bt == 'Size':
-            lambda_decls.append(
-                f'        const int {name}_k = parameterAs<int>(p, "{name}", 3);'
-            )
-            lambda_decls.append(
-                f'        const cv::Size {name}({name}_k, {name}_k);'
-            )
+        if bt == "Size":
+            lambda_decls.append(f'        const int {name}_k = parameterAs<int>(p, "{name}", 3);')
+            lambda_decls.append(f"        const cv::Size {name}({name}_k, {name}_k);")
             call_args.append(name)
             desc_args.append(
                 f'{{.name="{name}",.displayName="{name}",'
-                f'.semanticType=SemanticType::Integer,'
-                f'.direction=ArgumentDirection::Parameter,.defaultValue=(int)3}}'
+                f".semanticType=SemanticType::Integer,"
+                f".direction=ArgumentDirection::Parameter,.defaultValue=(int)3}}"
             )
             continue
 
@@ -297,17 +292,17 @@ FOOTER = """\
 
 
 def generate(functions: list[dict], header_includes: list[str]) -> str:
-    includes = '\n'.join(f'#include <{h}>' for h in header_includes)
+    includes = "\n".join(f"#include <{h}>" for h in header_includes)
 
-    desc_entries   = []
+    desc_entries = []
     factory_entries = []
 
     # Group descriptions by function key (multiple headers may describe same function)
     desc_map: dict[str, list[str]] = {}
     for func in functions:
-        snake = camel_to_snake(func['name'])
-        key = f'opencv.{snake}'
-        desc = func.get('description', '')
+        snake = camel_to_snake(func["name"])
+        key = f"opencv.{snake}"
+        desc = func.get("description", "")
         if desc:
             desc_map.setdefault(key, []).append(desc)
 
@@ -316,16 +311,16 @@ def generate(functions: list[dict], header_includes: list[str]) -> str:
         if result is None:
             continue
         lambda_decls, desc_args, call_args = result
-        name  = func['name']
+        name = func["name"]
         snake = camel_to_snake(name)
-        key   = f'opencv.{snake}'
+        key = f"opencv.{snake}"
 
         # ── FunctionDescriptor entry ─────────────────────────────────────────
-        desc_param_args = '\n        '.join(
-            f'        {a},' for a in desc_args
+        desc_param_args = "\n        ".join(f"        {a}," for a in desc_args)
+        raw_desc = "\n".join(desc_map.get(key, []))
+        escaped_description = (
+            raw_desc.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
         )
-        raw_desc = '\n'.join(desc_map.get(key, []))
-        escaped_description = raw_desc.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
         desc_entries.append(f"""\
     FunctionDescriptor{{
       .library     = "opencv",
@@ -345,8 +340,8 @@ def generate(functions: list[dict], header_includes: list[str]) -> str:
     }},""")
 
         # ── factory entry ────────────────────────────────────────────────────
-        body_lines = '\n'.join(lambda_decls)
-        args_str   = ', '.join(call_args)
+        body_lines = "\n".join(lambda_decls)
+        args_str = ", ".join(call_args)
         factory_entries.append(f"""\
     {{"{key}", [](NodeDescriptor d) {{
       return std::make_shared<GenericImageTransformFactory>(
@@ -363,8 +358,8 @@ def generate(functions: list[dict], header_includes: list[str]) -> str:
       );
     }}}},""")
 
-    desc_block    = '\n'.join(desc_entries)
-    factory_block = '\n'.join(factory_entries)
+    desc_block = "\n".join(desc_entries)
+    factory_block = "\n".join(factory_entries)
 
     return (
         HEADER.format(includes=includes)
@@ -378,33 +373,33 @@ def generate(functions: list[dict], header_includes: list[str]) -> str:
 
 # ─── main ─────────────────────────────────────────────────────────────────────
 
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--headers', nargs='+', required=True,
-                    help='OpenCV header paths to parse')
-    ap.add_argument('--includes', nargs='*', default=[],
-                    help='#include <...> names to emit in generated file')
-    ap.add_argument('--output', required=True,
-                    help='Output .cpp path')
+    ap.add_argument("--headers", nargs="+", required=True, help="OpenCV header paths to parse")
+    ap.add_argument(
+        "--includes", nargs="*", default=[], help="#include <...> names to emit in generated file"
+    )
+    ap.add_argument("--output", required=True, help="Output .cpp path")
     args = ap.parse_args()
 
     all_funcs: dict[str, dict] = {}
     for hpath in args.headers:
         for func in parse_header(hpath):
             # deduplicate by function name (first occurrence wins)
-            all_funcs.setdefault(func['name'], func)
+            all_funcs.setdefault(func["name"], func)
 
     # Default includes: derive from header paths
     includes = args.includes or [
-        Path(h).name for h in args.headers
-        if Path(h).name.endswith('.hpp')
+        Path(h).name for h in args.headers if Path(h).name.endswith(".hpp")
     ]
 
     cpp = generate(list(all_funcs.values()), includes)
-    Path(args.output).write_text(cpp, encoding='utf-8')
-    print(f'[gen_opencv_nodes] generated {len(all_funcs)} candidates → {args.output}',
-          file=sys.stderr)
+    Path(args.output).write_text(cpp, encoding="utf-8")
+    print(
+        f"[gen_opencv_nodes] generated {len(all_funcs)} candidates → {args.output}", file=sys.stderr
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
