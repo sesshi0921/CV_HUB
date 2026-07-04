@@ -88,6 +88,11 @@ target_link_libraries(cvhub PRIVATE cvhub_app)
 set_target_properties(cvhub PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/apps/cvhub")
 
 if(CVHUB_BUILD_GUI)
+    if(APPLE)
+        enable_language(OBJCXX)
+    elseif(WIN32)
+        enable_language(RC)
+    endif()
     find_package(glfw3 CONFIG REQUIRED)
     find_package(OpenGL REQUIRED)
     find_package(imgui CONFIG QUIET)
@@ -179,16 +184,58 @@ if(CVHUB_BUILD_GUI)
         FetchContent_MakeAvailable(nlohmann_json)
     endif()
 
-    add_executable(cvhub_gui apps/cvhub_gui/main.cpp)
+    set(CVHUB_GUI_SOURCES
+        apps/cvhub_gui/main.cpp
+    )
+    if(APPLE)
+        list(APPEND CVHUB_GUI_SOURCES apps/cvhub_gui/file_dialog_mac.mm)
+    else()
+        list(APPEND CVHUB_GUI_SOURCES apps/cvhub_gui/file_dialog_fallback.cpp)
+    endif()
+    if(WIN32)
+        list(APPEND CVHUB_GUI_SOURCES apps/cvhub_gui/resources/cvhub_gui.rc)
+    endif()
+
+    add_executable(cvhub_gui MACOSX_BUNDLE ${CVHUB_GUI_SOURCES})
+    target_include_directories(cvhub_gui PRIVATE apps/cvhub_gui)
     if(CVHUB_IMNODES_PROVIDES_IMGUI)
         target_link_libraries(cvhub_gui PRIVATE cvhub_app ${CVHUB_IMNODES_TARGET} ${CVHUB_GLFW_TARGET} OpenGL::GL nlohmann_json::nlohmann_json)
     else()
         target_link_libraries(cvhub_gui PRIVATE cvhub_app ${CVHUB_IMGUI_TARGET} ${CVHUB_IMNODES_TARGET} ${CVHUB_GLFW_TARGET} OpenGL::GL nlohmann_json::nlohmann_json)
     endif()
+    if(APPLE)
+        target_link_libraries(cvhub_gui PRIVATE "-framework AppKit" "-framework UniformTypeIdentifiers")
+    elseif(WIN32)
+        target_link_libraries(cvhub_gui PRIVATE ole32 uuid)
+    endif()
     find_file(CVHUB_IMGUI_GLFW_BACKEND_SOURCE imgui_impl_glfw.cpp PATH_SUFFIXES backends imgui/backends NO_CACHE)
     find_file(CVHUB_IMGUI_OPENGL3_BACKEND_SOURCE imgui_impl_opengl3.cpp PATH_SUFFIXES backends imgui/backends NO_CACHE)
     if(CVHUB_IMGUI_GLFW_BACKEND_SOURCE AND CVHUB_IMGUI_OPENGL3_BACKEND_SOURCE AND NOT CVHUB_IMGUI_TARGET STREQUAL "cvhub_vendor_imgui")
         target_sources(cvhub_gui PRIVATE ${CVHUB_IMGUI_GLFW_BACKEND_SOURCE} ${CVHUB_IMGUI_OPENGL3_BACKEND_SOURCE})
+    endif()
+    if(APPLE)
+        set(CVHUB_MAC_ICON "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/app_icon.icns")
+        if(EXISTS "${CVHUB_MAC_ICON}")
+            target_sources(cvhub_gui PRIVATE ${CVHUB_MAC_ICON})
+            set_source_files_properties(${CVHUB_MAC_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+            set_target_properties(cvhub_gui PROPERTIES
+                OUTPUT_NAME CV_HUB
+                MACOSX_BUNDLE_BUNDLE_NAME CV_HUB
+                MACOSX_BUNDLE_GUI_IDENTIFIER com.cvhub.CV-HUB
+                MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+                MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
+                MACOSX_BUNDLE_ICON_FILE app_icon.icns
+            )
+        endif()
+        add_custom_command(TARGET cvhub_gui PRE_BUILD
+            COMMAND ${CMAKE_COMMAND} -E rm -f
+                    "${CMAKE_BINARY_DIR}/apps/cvhub_gui/cvhub_gui"
+            COMMAND ${CMAKE_COMMAND} -E rm -rf
+                    "${CMAKE_BINARY_DIR}/apps/cvhub_gui/cvhub_gui.app"
+            COMMENT "Removing stale non-bundled cvhub_gui launch artifacts"
+        )
+    else()
+        set_target_properties(cvhub_gui PROPERTIES OUTPUT_NAME CV_HUB)
     endif()
     set_target_properties(cvhub_gui PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/apps/cvhub_gui")
 endif()

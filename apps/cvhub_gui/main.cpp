@@ -14,6 +14,8 @@
 #include <nlohmann/json.hpp>
 
 #include "cvhub/app/application.hpp"
+#include "file_dialog.hpp"
+#include "resources/app_icon_rgba.hpp"
 
 #if __has_include(<imnodes.h>)
 #include <imnodes.h>
@@ -33,8 +35,10 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <condition_variable>
 #include <cstdint>
 #include <cstdio>
@@ -44,6 +48,8 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -230,6 +236,77 @@ void applyTheme() {
   colors[ImGuiCol_Tab] = ImVec4(0.22f, 0.22f, 0.24f, 1.00f);
   colors[ImGuiCol_TabHovered] = ImVec4(0.82f, 0.36f, 0.10f, 0.80f);
   colors[ImGuiCol_TabActive] = ImVec4(0.32f, 0.25f, 0.21f, 1.00f);
+}
+
+std::optional<std::string> browseJsonPath(bool saveDialog,
+                                          const std::string& currentPath) {
+  return saveDialog ? cvhub::gui::saveJsonFileDialog(currentPath)
+                    : cvhub::gui::openJsonFileDialog(currentPath);
+}
+
+void setAppWindowIcon(GLFWwindow* window) {
+  GLFWimage image{};
+  image.width = cvhub::gui::resources::kAppIconWidth;
+  image.height = cvhub::gui::resources::kAppIconHeight;
+  image.pixels = const_cast<unsigned char*>(
+      cvhub::gui::resources::kAppIconRgba.data());
+  glfwSetWindowIcon(window, 1, &image);
+  cvhub::gui::applyNativeAppIcon();
+}
+
+void DrawFolderGlyph(const ImVec2& p, const ImVec2& q, bool active,
+                     bool hovered) {
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  const ImU32 bg =
+      active   ? IM_COL32(255, 132, 42, 255)
+      : hovered ? IM_COL32(235, 115, 38, 255)
+                : IM_COL32(210, 92, 26, 255);
+  const ImU32 fg = IM_COL32(255, 220, 160, 255);
+  const float w = q.x - p.x;
+  const float h = q.y - p.y;
+  const float x0 = p.x + w * 0.22f;
+  const float y0 = p.y + h * 0.42f;
+  const float x1 = q.x - w * 0.16f;
+  const float y1 = q.y - h * 0.22f;
+  dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), bg, 3.0f);
+  dl->AddRectFilled(ImVec2(x0 + 2.0f, p.y + h * 0.28f),
+                    ImVec2(x0 + w * 0.34f, y0 + 2.0f), fg, 2.0f);
+  dl->AddRect(ImVec2(x0, y0), ImVec2(x1, y1), fg, 3.0f, 0, 1.4f);
+}
+
+bool FolderIconButton(const char* id) {
+  ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.82f, 0.36f, 0.10f, 0.95f));
+  ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                        ImVec4(0.92f, 0.45f, 0.15f, 1.00f));
+  ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                        ImVec4(1.00f, 0.50f, 0.18f, 1.00f));
+  const bool clicked = ImGui::Button(id, ImVec2(46.0f, 0.0f));
+  const ImVec2 p = ImGui::GetItemRectMin();
+  const ImVec2 q = ImGui::GetItemRectMax();
+  DrawFolderGlyph(p, q, clicked, ImGui::IsItemHovered());
+  ImGui::PopStyleColor(3);
+  return clicked;
+}
+
+bool InputPathWithFolderButton(const char* id, char* buffer,
+                               std::size_t bufferSize, bool saveDialog) {
+  const float actualButtonWidth = 46.0f;
+  const float spacing = ImGui::GetStyle().ItemSpacing.x;
+  ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x -
+                          actualButtonWidth - spacing);
+  bool changed = ImGui::InputText(id, buffer, bufferSize);
+  ImGui::SameLine();
+  if (FolderIconButton((std::string{"##folder-"} + id).c_str())) {
+    if (auto selected = browseJsonPath(saveDialog, buffer)) {
+      std::snprintf(buffer, bufferSize, "%s", selected->c_str());
+      changed = true;
+    }
+  }
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("%s JSON file",
+                      saveDialog ? "Choose a save path for the"
+                                 : "Choose a");
+  return changed;
 }
 
 // ---------------------------------------------------------------------------
@@ -982,6 +1059,7 @@ int main() {
     glfwTerminate();
     return 1;
   }
+  setAppWindowIcon(window);
   glfwMakeContextCurrent(window);
   glfwSwapInterval(1);
 
@@ -1083,11 +1161,11 @@ int main() {
       openLoadModal = false;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(420, 0));
+    ImGui::SetNextWindowSize(ImVec2(560, 0));
     if (ImGui::BeginPopupModal("Save Graph", nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
-      ImGui::SetNextItemWidth(380.0f);
-      ImGui::InputText("##savepath", savePathBuf, sizeof(savePathBuf));
+      InputPathWithFolderButton("##savepath", savePathBuf, sizeof(savePathBuf),
+                                true);
       ImGui::Spacing();
       if (ImGui::Button("Save", ImVec2(90, 0))) {
         try {
@@ -1103,11 +1181,11 @@ int main() {
       ImGui::EndPopup();
     }
 
-    ImGui::SetNextWindowSize(ImVec2(420, 0));
+    ImGui::SetNextWindowSize(ImVec2(560, 0));
     if (ImGui::BeginPopupModal("Load Graph", nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
-      ImGui::SetNextItemWidth(380.0f);
-      ImGui::InputText("##loadpath", loadPathBuf, sizeof(loadPathBuf));
+      InputPathWithFolderButton("##loadpath", loadPathBuf, sizeof(loadPathBuf),
+                                false);
       ImGui::Spacing();
       if (ImGui::Button("Load", ImVec2(90, 0))) {
         try {
