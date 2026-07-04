@@ -1,0 +1,19 @@
+{
+  "include": [
+    "plugins/opencv/tools",
+    "plugins/pytorch/tools",
+    "scripts"
+  ],
+  "exclude": [
+    "build",
+    ".venv",
+    "third_party"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "none",
+  "reportMissingTypeStubs": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownVariableType": "none"
+}

@@ -1,0 +1,192 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changed-files:
+    name: Detect changed files
+    runs-on: ubuntu-latest
+    outputs:
+      cpp_any_changed: ${{ steps.changed.outputs.cpp_any_changed }}
+      cpp_all_changed_files: ${{ steps.changed.outputs.cpp_all_changed_files }}
+      python_any_changed: ${{ steps.changed.outputs.python_any_changed }}
+      python_all_changed_files: ${{ steps.changed.outputs.python_all_changed_files }}
+      lint_cpp_any_changed: ${{ steps.changed.outputs.lint_cpp_any_changed }}
+      lint_cpp_all_changed_files: ${{ steps.changed.outputs.lint_cpp_all_changed_files }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Collect changed files
+        id: changed
+        uses: tj-actions/changed-files@v45
+        with:
+          separator: ' '
+          files_yaml: |
+            cpp:
+              - '**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx,mm}'
+              - '!third_party/**'
+              - '!build/**'
+              - '!apps/cvhub_gui/resources/app_icon_rgba.hpp'
+            lint_cpp:
+              - '**/*.{cc,cpp,cxx}'
+              - '!third_party/**'
+              - '!build/**'
+              - '!apps/cvhub_gui/resources/app_icon_rgba.hpp'
+            python:
+              - 'plugins/**/*.py'
+              - 'scripts/**/*.py'
+              - '!build/**'
+              - '!third_party/**'
+
+  format:
+    name: Formatter checks
+    runs-on: ubuntu-latest
+    needs: changed-files
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Cache apt formatter packages
+        if: needs.changed-files.outputs.cpp_any_changed == 'true'
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: clang-format
+          version: clang-format-v1
+
+      - name: Set up Python
+        if: needs.changed-files.outputs.python_any_changed == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install Ruff
+        if: needs.changed-files.outputs.python_any_changed == 'true'
+        uses: astral-sh/ruff-action@v3
+        with:
+          version-file: pyproject.toml
+
+      - name: Check C++ formatting
+        if: needs.changed-files.outputs.cpp_any_changed == 'true'
+        shell: bash
+        run: |
+          clang-format --dry-run --Werror ${{ needs.changed-files.outputs.cpp_all_changed_files }}
+
+      - name: Check Python formatting
+        if: needs.changed-files.outputs.python_any_changed == 'true'
+        shell: bash
+        run: |
+          ruff format --check ${{ needs.changed-files.outputs.python_all_changed_files }}
+
+      - name: No formatter targets
+        if: needs.changed-files.outputs.cpp_any_changed != 'true' && needs.changed-files.outputs.python_any_changed != 'true'
+        run: echo "No C++ or Python files changed."
+
+  lint:
+    name: Linters
+    runs-on: ubuntu-latest
+    needs:
+      - changed-files
+      - format
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Cache apt lint/build packages
+        if: needs.changed-files.outputs.lint_cpp_any_changed == 'true'
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: clang-tidy cmake ninja-build g++ libgl1-mesa-dev libglfw3-dev libopencv-dev libspdlog-dev xorg-dev
+          version: clang-tidy-build-v1
+
+      - name: Set up Python
+        if: needs.changed-files.outputs.python_any_changed == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install Ruff
+        if: needs.changed-files.outputs.python_any_changed == 'true'
+        uses: astral-sh/ruff-action@v3
+        with:
+          version-file: pyproject.toml
+
+      - name: Configure CMake for clang-tidy
+        if: needs.changed-files.outputs.lint_cpp_any_changed == 'true'
+        run: |
+          cmake -S . -B build/ci-tidy -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCVHUB_BUILD_PLUGIN_PYTORCH=OFF \
+            -DCVHUB_BUILD_TESTS=ON
+
+      - name: Run clang-tidy on changed C++ translation units
+        if: needs.changed-files.outputs.lint_cpp_any_changed == 'true'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import pathlib
+          import shlex
+          import subprocess
+
+          root = pathlib.Path.cwd().resolve()
+          changed = {
+              str((root / path).resolve())
+              for path in shlex.split("${{ needs.changed-files.outputs.lint_cpp_all_changed_files }}")
+          }
+          commands = json.loads(pathlib.Path("build/ci-tidy/compile_commands.json").read_text())
+          files = []
+          for entry in commands:
+              source = pathlib.Path(entry["file"]).resolve()
+              if str(source) not in changed:
+                  continue
+              try:
+                  rel = source.relative_to(root).as_posix()
+              except ValueError:
+                  continue
+              if "/_deps/" in rel or rel.startswith("third_party/") or rel.endswith("_auto_nodes.cpp"):
+                  continue
+              files.append(str(source))
+
+          if files:
+              subprocess.run(
+                  [
+                      "clang-tidy",
+                      "-p",
+                      "build/ci-tidy",
+                      "--quiet",
+                      *sorted(set(files)),
+                  ],
+                  check=True,
+              )
+          else:
+              print("No changed C++ translation units are part of the compile database.")
+          PY
+
+      - name: Run Python lint on changed files
+        if: needs.changed-files.outputs.python_any_changed == 'true'
+        shell: bash
+        run: |
+          ruff check ${{ needs.changed-files.outputs.python_all_changed_files }}
+
+      - name: Run Pyright
+        if: needs.changed-files.outputs.python_any_changed == 'true'
+        uses: jakebailey/pyright-action@v2
+        with:
+          project: pyrightconfig.json
+
+      - name: No linter targets
+        if: needs.changed-files.outputs.lint_cpp_any_changed != 'true' && needs.changed-files.outputs.python_any_changed != 'true'
+        run: echo "No C++ translation units or Python files changed."

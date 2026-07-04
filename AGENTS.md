@@ -6,6 +6,60 @@ CV_HUB is a C++20 image-processing pipeline platform. Treat image-processing lib
 
 The primary architecture reference is `docs/ARCHITECTURE.md`. Keep README limited to installation and execution steps.
 
+## Plugin Auto-Generation Pattern（最重要）
+
+新しいライブラリプラグインを追加するときは以下の設計に従うこと。
+
+### 原則
+プラグインのC++ソースは「そのライブラリにどんな関数があるか」を知らない。
+ビルド時に Python スクリプトがヘッダを解析し、ノード登録コードを自動生成する。
+
+### ファイル構成
+```
+plugins/<lib>/CMakeLists.txt           # add_custom_command でスクリプトを呼ぶ
+plugins/<lib>/src/<lib>_helpers.hpp    # 型変換ヘルパー (copyBytes / toImage / fromImage) [inline]
+plugins/<lib>/src/<lib>_plugin.cpp     # stateful / source ノードのみ手書き
+plugins/<lib>/tools/gen_nodes.py       # ヘッダ解析 → *_auto_nodes.cpp 生成（ライブラリ固有）
+```
+
+### gen スクリプトの出力 (2関数)
+- `getAutoDescriptors()` → `std::vector<FunctionDescriptor>`
+- `getAutoRegistry()` → `std::unordered_map<std::string, FactoryFn>`
+
+### CMakeLists.txt パターン
+```cmake
+add_custom_command(
+    OUTPUT  ${CMAKE_CURRENT_BINARY_DIR}/<lib>_auto_nodes.cpp
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_nodes.py
+            --headers <header_paths> --output <output>
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_nodes.py <header_paths>
+)
+target_sources(<target> PRIVATE src/<lib>_plugin.cpp ${GEN_OUTPUT})
+```
+
+### plugin.cpp 統合パターン
+```cpp
+std::unordered_map<std::string, FactoryFn> kRegistry = { /* stateful/source only */ };
+for (auto& [k, v] : getAutoRegistry()) kRegistry.emplace(k, std::move(v));
+
+auto allDesc = introspector.inspect();
+auto autoDesc = getAutoDescriptors();
+allDesc.insert(allDesc.end(), std::make_move_iterator(autoDesc.begin()),
+                              std::make_move_iterator(autoDesc.end()));
+
+for (const auto& node : services.functionNodeGenerator()->generate(allDesc))
+    if (auto it = kRegistry.find(node.factoryKey); it != kRegistry.end())
+        services.nodeCatalog()->registerNode(node, it->second(node));
+```
+
+### 参照実装
+- `plugins/opencv/tools/gen_nodes.py`
+- `plugins/opencv/src/opencv_helpers.hpp`
+- `plugins/opencv/src/opencv_plugin.cpp`
+- `plugins/opencv/CMakeLists.txt`
+
+---
+
 ## Development Rules
 
 - Prefer interface-first design under `include/cvhub/...`.
