@@ -7,3 +7,5 @@ cmake-build-*/
 *.app.dSYM/
 *.ini
 **/graph.json
+.ruff_cache/
+.pyright/

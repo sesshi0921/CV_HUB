@@ -2,8 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <stdexcept>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -88,8 +88,7 @@ struct NodeDescriptor {
 using ParameterMap = std::unordered_map<std::string, ParameterValue>;
 
 template <typename T>
-T parameterAs(const ParameterMap& values, const std::string& key, T fallback)
-{
+T parameterAs(const ParameterMap& values, const std::string& key, T fallback) {
     const auto it = values.find(key);
     if (it == values.end()) {
         return fallback;

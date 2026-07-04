@@ -20,18 +20,17 @@ std::unordered_map<std::string, FactoryFn> getAutoOpenCVRegistry();
 // ---------------------------------------------------------------------------
 
 void registerOpenCVPlugin(ServiceContainer& services) {
-  auto kRegistry = getAutoOpenCVRegistry();
+    auto kRegistry = getAutoOpenCVRegistry();
 
-  auto allDescriptors = getAutoOpenCVDescriptors();
+    auto allDescriptors = getAutoOpenCVDescriptors();
 
-  const auto descriptors =
-      services.functionNodeGenerator()->generate(allDescriptors);
-  for (const auto& descriptor : descriptors) {
-    const auto it = kRegistry.find(descriptor.factoryKey);
-    if (it != kRegistry.end()) {
-      services.nodeCatalog()->registerNode(descriptor, it->second(descriptor));
+    const auto descriptors = services.functionNodeGenerator()->generate(allDescriptors);
+    for (const auto& descriptor : descriptors) {
+        const auto it = kRegistry.find(descriptor.factoryKey);
+        if (it != kRegistry.end()) {
+            services.nodeCatalog()->registerNode(descriptor, it->second(descriptor));
+        }
     }
-  }
 }
 
-}  // namespace cvhub::plugins::opencv
+} // namespace cvhub::plugins::opencv

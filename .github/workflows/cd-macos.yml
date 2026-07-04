@@ -1,0 +1,57 @@
+name: CD macOS
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build macOS artifact
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install cmake ninja opencv spdlog glfw nlohmann-json
+
+      - name: Configure
+        run: |
+          cmake -S . -B build/release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCVHUB_BUILD_PLUGIN_PYTORCH=OFF \
+            -DCVHUB_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build/release --config Release
+
+      - name: Test
+        run: ctest --test-dir build/release --output-on-failure
+
+      - name: Package
+        shell: bash
+        run: |
+          artifact="CV_HUB-macos-${GITHUB_REF_NAME}-${GITHUB_SHA::7}"
+          mkdir -p "dist/${artifact}"
+          cp -R build/release/apps/cvhub_gui/CV_HUB.app "dist/${artifact}/"
+          cp build/release/apps/cvhub/cvhub "dist/${artifact}/"
+          cp README.md "dist/${artifact}/"
+          (cd dist && zip -r "${artifact}.zip" "${artifact}")
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: CV_HUB-macos-${{ github.ref_name }}-${{ github.sha }}
+          path: dist/*.zip
+          if-no-files-found: error

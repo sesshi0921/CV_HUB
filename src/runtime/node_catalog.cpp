@@ -4,8 +4,8 @@
 
 namespace cvhub {
 
-void NodeCatalog::registerNode(NodeDescriptor descriptor, std::shared_ptr<const INodeFactory> factory)
-{
+void NodeCatalog::registerNode(NodeDescriptor descriptor,
+                               std::shared_ptr<const INodeFactory> factory) {
     if (!factory) {
         throw std::invalid_argument("Cannot register node without a factory");
     }
@@ -15,14 +15,14 @@ void NodeCatalog::registerNode(NodeDescriptor descriptor, std::shared_ptr<const 
 
     const auto nodeId = descriptor.id;
     std::scoped_lock lock(mutex_);
-    const auto [_, inserted] = entries_.emplace(nodeId, Entry{std::move(descriptor), std::move(factory)});
+    const auto [_, inserted] =
+        entries_.emplace(nodeId, Entry{std::move(descriptor), std::move(factory)});
     if (!inserted) {
         throw std::runtime_error("Duplicate node id registration: " + nodeId);
     }
 }
 
-const NodeDescriptor& NodeCatalog::descriptor(const NodeId& nodeId) const
-{
+const NodeDescriptor& NodeCatalog::descriptor(const NodeId& nodeId) const {
     std::scoped_lock lock(mutex_);
     const auto it = entries_.find(nodeId);
     if (it == entries_.end()) {
@@ -31,8 +31,7 @@ const NodeDescriptor& NodeCatalog::descriptor(const NodeId& nodeId) const
     return it->second.descriptor;
 }
 
-std::unique_ptr<INode> NodeCatalog::create(const NodeId& nodeId) const
-{
+std::unique_ptr<INode> NodeCatalog::create(const NodeId& nodeId) const {
     std::shared_ptr<const INodeFactory> factory;
     {
         std::scoped_lock lock(mutex_);
@@ -45,8 +44,7 @@ std::unique_ptr<INode> NodeCatalog::create(const NodeId& nodeId) const
     return factory->create();
 }
 
-std::vector<NodeDescriptor> NodeCatalog::list() const
-{
+std::vector<NodeDescriptor> NodeCatalog::list() const {
     std::scoped_lock lock(mutex_);
     std::vector<NodeDescriptor> nodes;
     nodes.reserve(entries_.size());

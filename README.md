@@ -78,7 +78,7 @@ http://localhost:8000/index.html
 On macOS with Homebrew:
 
 ```bash
-brew install cmake opencv spdlog glfw
+brew install cmake opencv spdlog glfw nlohmann-json
 ```
 
 If Homebrew commands are not available in your shell, add Homebrew to `PATH` first:
@@ -88,6 +88,16 @@ export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
 ```
 
 Homebrew-enabled macOS builds automatically prepend `brew --prefix` to `CMAKE_PREFIX_PATH` during CMake configuration.
+
+On Windows, use the checked-in `vcpkg.json` manifest with the vcpkg CMake toolchain:
+
+```powershell
+cmake -S . -B build `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+  -DVCPKG_TARGET_TRIPLET=x64-windows `
+  -DCVHUB_BUILD_PLUGIN_PYTORCH=OFF
+```
 
 ### Python environment
 

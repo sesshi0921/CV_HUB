@@ -7,7 +7,7 @@
 namespace cvhub {
 
 class ILogger {
-public:
+  public:
     virtual ~ILogger() = default;
     virtual void info(std::string_view scope, std::string_view message) = 0;
     virtual void warn(std::string_view scope, std::string_view message) = 0;
@@ -15,14 +15,14 @@ public:
 };
 
 class ScopedLogger {
-public:
+  public:
     ScopedLogger(std::shared_ptr<ILogger> logger, std::string scope);
 
     void info(std::string_view message) const;
     void warn(std::string_view message) const;
     void error(std::string_view message) const;
 
-private:
+  private:
     std::shared_ptr<ILogger> logger_;
     std::string scope_;
 };

@@ -5,7 +5,7 @@ namespace cvhub {
 class ServiceContainer;
 
 class IPluginModule {
-public:
+  public:
     virtual ~IPluginModule() = default;
     virtual void registerServices(ServiceContainer& services) = 0;
 };

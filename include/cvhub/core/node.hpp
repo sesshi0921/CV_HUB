@@ -16,22 +16,23 @@ struct NodeExecutionContext {
 };
 
 class INode {
-public:
+  public:
     virtual ~INode() = default;
     virtual const NodeDescriptor& descriptor() const = 0;
     virtual void execute(NodeExecutionContext& context) = 0;
 };
 
 class INodeFactory {
-public:
+  public:
     virtual ~INodeFactory() = default;
     virtual std::unique_ptr<INode> create() const = 0;
 };
 
 class INodeCatalog {
-public:
+  public:
     virtual ~INodeCatalog() = default;
-    virtual void registerNode(NodeDescriptor descriptor, std::shared_ptr<const INodeFactory> factory) = 0;
+    virtual void registerNode(NodeDescriptor descriptor,
+                              std::shared_ptr<const INodeFactory> factory) = 0;
     virtual const NodeDescriptor& descriptor(const NodeId& nodeId) const = 0;
     virtual std::unique_ptr<INode> create(const NodeId& nodeId) const = 0;
     virtual std::vector<NodeDescriptor> list() const = 0;

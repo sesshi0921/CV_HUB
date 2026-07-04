@@ -13,14 +13,13 @@ namespace cvhub {
 
 namespace {
 
-const PortDescriptor* findPort(const std::vector<PortDescriptor>& ports, const PortId& id)
-{
-    const auto it = std::ranges::find_if(ports, [&](const PortDescriptor& port) { return port.id == id; });
+const PortDescriptor* findPort(const std::vector<PortDescriptor>& ports, const PortId& id) {
+    const auto it =
+        std::ranges::find_if(ports, [&](const PortDescriptor& port) { return port.id == id; });
     return it == ports.end() ? nullptr : &*it;
 }
 
-std::map<NodeInstanceId, GraphNode> indexNodes(const PipelineGraph& graph)
-{
+std::map<NodeInstanceId, GraphNode> indexNodes(const PipelineGraph& graph) {
     std::map<NodeInstanceId, GraphNode> nodes;
     for (const auto& node : graph.nodes) {
         if (node.instanceId.empty()) {
@@ -35,15 +34,12 @@ std::map<NodeInstanceId, GraphNode> indexNodes(const PipelineGraph& graph)
 
 } // namespace
 
-PipelineExecutor::PipelineExecutor(std::shared_ptr<INodeCatalog> catalog, std::shared_ptr<ILogger> logger, int workerCount)
-    : catalog_(std::move(catalog))
-    , logger_(std::move(logger))
-    , workerCount_(std::max(1, workerCount))
-{
-}
+PipelineExecutor::PipelineExecutor(std::shared_ptr<INodeCatalog> catalog,
+                                   std::shared_ptr<ILogger> logger, int workerCount)
+    : catalog_(std::move(catalog)), logger_(std::move(logger)),
+      workerCount_(std::max(1, workerCount)) {}
 
-PipelineRunResult PipelineExecutor::run(const PipelineGraph& graph)
-{
+PipelineRunResult PipelineExecutor::run(const PipelineGraph& graph) {
     ScopedLogger log(logger_, "runtime.pipeline");
     PipelineRunResult result;
 
@@ -74,13 +70,16 @@ PipelineRunResult PipelineExecutor::run(const PipelineGraph& graph)
             const auto* fromPort = findPort(fromDescriptor.outputs, edge.fromPort);
             const auto* toPort = findPort(toDescriptor.inputs, edge.toPort);
             if (!fromPort) {
-                throw std::runtime_error("Edge references unknown output port: " + edge.fromNode + "." + edge.fromPort);
+                throw std::runtime_error("Edge references unknown output port: " + edge.fromNode +
+                                         "." + edge.fromPort);
             }
             if (!toPort) {
-                throw std::runtime_error("Edge references unknown input port: " + edge.toNode + "." + edge.toPort);
+                throw std::runtime_error("Edge references unknown input port: " + edge.toNode +
+                                         "." + edge.toPort);
             }
             if (fromPort->type != toPort->type) {
-                throw std::runtime_error("Edge port type mismatch: " + edge.fromNode + "." + edge.fromPort + " -> " + edge.toNode + "." + edge.toPort);
+                throw std::runtime_error("Edge port type mismatch: " + edge.fromNode + "." +
+                                         edge.fromPort + " -> " + edge.toNode + "." + edge.toPort);
             }
 
             incoming[edge.toNode].push_back(edge);
@@ -90,9 +89,13 @@ PipelineRunResult PipelineExecutor::run(const PipelineGraph& graph)
 
         for (const auto& [instanceId, descriptor] : descriptors) {
             for (const auto& input : descriptor.inputs) {
-                const bool connected = std::ranges::any_of(incoming[instanceId], [&](const GraphEdge& edge) { return edge.toPort == input.id; });
+                const bool connected =
+                    std::ranges::any_of(incoming[instanceId], [&](const GraphEdge& edge) {
+                        return edge.toPort == input.id;
+                    });
                 if (input.required && !connected) {
-                    throw std::runtime_error("Required input is not connected: " + instanceId + "." + input.id);
+                    throw std::runtime_error("Required input is not connected: " + instanceId +
+                                             "." + input.id);
                 }
             }
         }
@@ -127,7 +130,8 @@ PipelineRunResult PipelineExecutor::run(const PipelineGraph& graph)
                     {
                         std::scoped_lock lock(outputMutex);
                         for (const auto& edge : incoming[instanceId]) {
-                            context.inputs.emplace(edge.toPort, outputs.at(edge.fromNode).at(edge.fromPort));
+                            context.inputs.emplace(edge.toPort,
+                                                   outputs.at(edge.fromNode).at(edge.fromPort));
                         }
                     }
 

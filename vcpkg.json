@@ -1,0 +1,11 @@
+{
+  "name": "cv-hub",
+  "version-string": "0.1.0",
+  "description": "C++20 image-processing pipeline platform with OpenCV plugins and a Dear ImGui graph editor.",
+  "dependencies": [
+    "glfw3",
+    "nlohmann-json",
+    "opencv4",
+    "spdlog"
+  ]
+}

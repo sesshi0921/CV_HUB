@@ -16,18 +16,19 @@ import json
 import struct
 import sys
 import traceback
+from typing import Any
 
 # Redirect text stdout to stderr BEFORE importing any library.
 # This prevents torchvision/numpy/PIL from polluting the binary protocol channel.
 _proto_out = sys.stdout.buffer
 sys.stdout = sys.stderr
 
-import numpy as np  # pylint: disable=wrong-import-position
-import torchvision.transforms.functional as F  # pylint: disable=wrong-import-position
-from PIL import Image  # pylint: disable=wrong-import-position
+import numpy as np  # noqa: E402  # pylint: disable=wrong-import-position
+import torchvision.transforms.functional as F  # noqa: E402  # pylint: disable=wrong-import-position
+from PIL import Image  # noqa: E402  # pylint: disable=wrong-import-position
 
 
-def _read_message():
+def _read_message() -> tuple[dict[str, Any] | None, bytes | None]:
     header_len_raw = sys.stdin.buffer.read(4)
     if len(header_len_raw) < 4:
         return None, None
@@ -38,7 +39,7 @@ def _read_message():
     return header, image_bytes
 
 
-def _write_response(header: dict, image_bytes: bytes):
+def _write_response(header: dict[str, Any], image_bytes: bytes) -> None:
     header_json = json.dumps(header).encode("utf-8")
     _proto_out.write(struct.pack("<I", len(header_json)))
     _proto_out.write(header_json)
@@ -46,11 +47,11 @@ def _write_response(header: dict, image_bytes: bytes):
     _proto_out.flush()
 
 
-def _write_error(msg: str):
+def _write_error(msg: str) -> None:
     _write_response({"ok": False, "error": msg}, b"")
 
 
-def _bytes_to_pil(header: dict, image_bytes: bytes):
+def _bytes_to_pil(header: dict[str, Any], image_bytes: bytes):
     w, h, c = header["w"], header["h"], header["c"]
     fmt = header["fmt"]
     arr = np.frombuffer(image_bytes, dtype=np.uint8)
@@ -81,18 +82,21 @@ def _pil_to_bytes(img: Image.Image, original_fmt: str):
     return arr.tobytes(), w, h, c, out_fmt
 
 
-def _dispatch(fn_name: str, params: dict, pil_img: Image.Image) -> Image.Image:
+def _dispatch(fn_name: str, params: dict[str, Any], pil_img: Image.Image) -> Image.Image:
     fn = getattr(F, fn_name, None)
     if fn is None:
         raise ValueError(f"torchvision.transforms.functional has no function: {fn_name!r}")
     return fn(pil_img, **params)
 
 
-def _main():
+def _main() -> None:
     while True:
         header, image_bytes = _read_message()
         if header is None:
             break
+        if image_bytes is None:
+            _write_error("Malformed input: missing image payload")
+            continue
         try:
             fn_name = header["fn"]
             params = header.get("params", {})
@@ -101,6 +105,7 @@ def _main():
             if not isinstance(result_img, Image.Image):
                 # Some functions return Tensor — convert back
                 import torch  # noqa: PLC0415
+
                 if isinstance(result_img, torch.Tensor):
                     result_img = F.to_pil_image(result_img)
                 else:

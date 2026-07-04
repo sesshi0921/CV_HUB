@@ -6,8 +6,7 @@
 
 namespace cvhub::plugins::pytorch {
 
-void registerPyTorchPlugin(ServiceContainer& services,
-                           const std::string& pythonPath,
+void registerPyTorchPlugin(ServiceContainer& services, const std::string& pythonPath,
                            const std::string& workerPath);
 
-}  // namespace cvhub::plugins::pytorch
+} // namespace cvhub::plugins::pytorch
