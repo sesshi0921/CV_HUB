@@ -44,6 +44,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <map>
 #include <memory>
@@ -908,7 +909,6 @@ void renderParameterEditor(cvhub::ParameterMap& values,
                 break;
             }
         }
-        bool changed = false;
         if (ImGui::BeginCombo(parameter.displayName.c_str(),
                               parameter.options.empty()
                                   ? ""
@@ -918,7 +918,6 @@ void renderParameterEditor(cvhub::ParameterMap& values,
                 const bool selected = static_cast<int>(i) == currentIndex;
                 if (ImGui::Selectable(parameter.options[i].displayName.c_str(), selected)) {
                     it->second = parameter.options[i].id;
-                    changed = true;
                 }
                 if (selected) {
                     ImGui::SetItemDefaultFocus();
@@ -990,7 +989,7 @@ void renderProperties(GuiGraphState& state,
 
 } // namespace
 
-int main() {
+int main() try {
     if (!glfwInit()) {
         return 1;
     }
@@ -1023,7 +1022,8 @@ int main() {
     if (std::filesystem::exists("default.json")) {
         try {
             graphState = loadGraph("default.json", services->nodeCatalog());
-        } catch (...) {
+        } catch (const std::exception& ex) {
+            std::cerr << "Failed to load default.json: " << ex.what() << "\n";
         }
     }
     bool showNodes = true;
@@ -1259,4 +1259,12 @@ int main() {
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;
+} catch (const std::exception& ex) {
+    std::cerr << "CV_HUB GUI failed: " << ex.what() << "\n";
+    glfwTerminate();
+    return 1;
+} catch (...) {
+    std::cerr << "CV_HUB GUI failed with an unknown error\n";
+    glfwTerminate();
+    return 1;
 }

@@ -52,12 +52,14 @@ class MockPythonRuntime final : public cvhub::IPythonRuntime {
 };
 
 cvhub::IPythonRuntime::Response successResponse(int w, int h, int c, cvhub::PixelFormat fmt) {
-    std::vector<std::byte> bytes(static_cast<std::size_t>(w * h * c), std::byte{200});
+    const auto byteCount =
+        static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * static_cast<std::size_t>(c);
+    std::vector<std::byte> bytes(byteCount, std::byte{200});
     return {true, "", w, h, c, fmt, std::move(bytes)};
 }
 
 // Build a GenericImageTransformFactory backed by MockPythonRuntime
-std::shared_ptr<cvhub::INodeFactory> makeFactory(std::shared_ptr<MockPythonRuntime> runtime,
+std::shared_ptr<cvhub::INodeFactory> makeFactory(const std::shared_ptr<MockPythonRuntime>& runtime,
                                                  const std::string& fnName) {
     using namespace cvhub;
     using namespace cvhub::plugins::pytorch;
@@ -73,7 +75,7 @@ std::shared_ptr<cvhub::INodeFactory> makeFactory(std::shared_ptr<MockPythonRunti
     };
 
     ImageTransformFn fn = [runtime,
-                           fnName](std::shared_ptr<const ImageValue> input,
+                           fnName](const std::shared_ptr<const ImageValue>& input,
                                    const ParameterMap& params) -> std::shared_ptr<ImageValue> {
         return responseToImage(runtime->call(imageToRequest(fnName, *input, params)));
     };
@@ -94,7 +96,7 @@ void test_imageToRequest_metadata() {
     require(req.h == 6, "h");
     require(req.c == 3, "c");
     require(req.fmt == cvhub::PixelFormat::BGR8, "fmt");
-    require(req.imageBytes.size() == 8 * 6 * 3, "image bytes size");
+    require(req.imageBytes.size() == static_cast<std::size_t>(8) * 6U * 3U, "image bytes size");
     require(req.params.count("k") == 1, "params forwarded");
 }
 
@@ -204,9 +206,10 @@ void test_execute_sends_fn_name_and_metadata() {
     node->execute(ctx);
 
     require(runtime->lastCall.has_value(), "runtime called");
-    require(runtime->lastCall->fn == "hflip", "fn name");
-    require(runtime->lastCall->w == 4, "w forwarded");
-    require(runtime->lastCall->fmt == cvhub::PixelFormat::RGB8, "fmt forwarded");
+    const auto& call = runtime->lastCall.value();
+    require(call.fn == "hflip", "fn name");
+    require(call.w == 4, "w forwarded");
+    require(call.fmt == cvhub::PixelFormat::RGB8, "fmt forwarded");
 }
 
 void test_execute_passes_parameters() {
@@ -219,7 +222,8 @@ void test_execute_passes_parameters() {
     ctx.parameters["brightness_factor"] = 1.5;
     node->execute(ctx);
 
-    const auto& p = runtime->lastCall->params;
+    require(runtime->lastCall.has_value(), "runtime called");
+    const auto& p = runtime->lastCall.value().params;
     require(p.count("brightness_factor") == 1, "param forwarded");
     require(std::get<double>(p.at("brightness_factor")) == 1.5, "param value");
 }
